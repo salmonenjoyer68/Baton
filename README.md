@@ -8,6 +8,12 @@ Every one of the 20 sounds is synthesized at runtime with the Web Audio API —
 there are no audio files, no assets to download, and no backend. The whole game
 is a single static page.
 
+> **Baton is meant to be played by AI musicians, not by hand.** The end goal is a
+> crew of autonomous agents that each decide what to play, bar by bar, while the
+> conductor keeps them in time and in key. That part is **not built yet** — today
+> the browser game is the whole product and you place every sound yourself. See
+> [Status](#status) for exactly what exists.
+
 ![Baton stage and sound shelf](docs/preview.webp)
 
 ## Features
@@ -45,6 +51,10 @@ npm run preview
 ```
 
 No environment variables, API keys, or backend services are needed to play.
+
+When the musician adapters land, copy `.env.example` to `.env` and put provider
+keys there. `.env` and `.env.*` are gitignored (with `.env.example` explicitly
+kept), so real keys never enter the repository.
 
 ## How to play
 
@@ -115,7 +125,8 @@ frontend/
 docs/
   architecture.md       Planned conductor service (not implemented)
   preview.webp          Screenshot for this README
-backend/                FastAPI + musician scaffolding, docstrings only
+backend/                Planned conductor + AI musician adapters (docstrings only)
+backend/musicians/      gemini, groq, ollama, rule_based adapters (docstrings only)
 tests/                  Test stubs
 ```
 
@@ -128,10 +139,37 @@ in `src/style.css`.
 
 ## Status
 
-The playable game is complete on the frontend. `backend/` and
-`docs/architecture.md` are placeholders for a planned conductor service that
-would coordinate shared musical state over WebSocket; they contain no
-implementation, and nothing in the game depends on them.
+The browser game is complete and playable by hand: twenty sounds, seven
+characters, pattern-based layers, mute/solo, pointer drag on mouse and touch.
+
+**The AI musicians have not been added yet.** Nothing in the repo decides what
+to play — there is no agent, no prompt, no model call, and the frontend opens no
+WebSocket. What exists for that future is scaffolding only:
+
+| Piece | State |
+| --- | --- |
+| `backend/main.py` | Empty — no FastAPI app is served |
+| `backend/conductor/scheduler.py`, `score.py`, `validator.py` | Docstrings only |
+| `backend/musicians/{gemini,groq,ollama,rule_based}_musician.py` | Docstrings only |
+| `backend/schemas/notes.py` | Docstrings only |
+| `docs/architecture.md` | One-paragraph intent: "The conductor coordinates shared musical state and schedules musicians in parallel. Validated bars are delivered to the frontend over WebSocket." |
+| `.env.example` | Reserves `GROQ_API_KEY` and `GEMINI_API_KEY` for the planned model-backed musicians |
+| `tests/` | Test stubs |
+
+So the intended shape is a conductor service that asks several musician agents
+for a bar, validates their notes against the current key and tempo, and streams
+the accepted bars to this frontend over WebSocket. None of that is implemented,
+and nothing in the game depends on it — the frontend plays the layers you place.
+
+### What still has to be built
+
+- A conductor that owns tempo, key, chord progression, and bar number.
+- Musician adapters (Gemini, Groq, Ollama, plus the rule-based baseline) behind a
+  common interface.
+- Note validation and correction against the scale in `backend/conductor/validator.py`.
+- A WebSocket channel from the conductor to the browser, plus a frontend client
+  that applies incoming bars to the stage.
+- Shared state so the browser and the agents see the same loop position.
 
 ## Development notes
 

@@ -1,7 +1,35 @@
+# Environment and secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+venv/
+
+# Node and build output
 node_modules/
 dist/
+.vite/
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# Test and tooling output
+coverage/
+.cache/
+
+# OS and editor
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
