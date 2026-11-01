@@ -27,10 +27,10 @@ export const NOTE_HZ = {
 };
 
 export const CATEGORIES = [
-  { id: "beats", label: "Beats", color: "coral", icon: "●" },
-  { id: "melody", label: "Bass + Melody", color: "turquoise", icon: "≈" },
-  { id: "effects", label: "Effects", color: "mango", icon: "✦" },
-  { id: "voices", label: "Voices", color: "pink", icon: "◖" }
+  { id: "beats", label: "Beats", color: "coral" },
+  { id: "melody", label: "Bass + Melody", color: "turquoise" },
+  { id: "effects", label: "Effects", color: "mango" },
+  { id: "voices", label: "Voices", color: "pink" }
 ];
 
 // `steps` holds one velocity (0 = silent) per beat of the loop.

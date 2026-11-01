@@ -1,8 +1,8 @@
 # Baton
 
-A browser music-mixing game. Pick sounds from the shelf, drop them on the crew,
-and each character starts performing one looping layer on a shared 8-beat grid at
-110 BPM. Stack all seven and the beach party is yours.
+A browser music-mixing game with an 8-bit console skin. Pick sounds from the
+shelf, drop them on the crew, and each character starts performing one looping
+layer on a shared 8-beat grid at 110 BPM. Stack all seven and the track is yours.
 
 Every one of the 20 sounds is synthesized at runtime with the Web Audio API —
 there are no audio files, no assets to download, and no backend. The whole game
@@ -14,7 +14,7 @@ is a single static page.
 > the browser game is the whole product and you place every sound yourself. See
 > [Status](#status) for exactly what exists.
 
-![Baton stage and sound shelf](docs/preview.webp)
+![Baton 8-bit stage and sound shelf](docs/preview.webp)
 
 ## Features
 
@@ -25,13 +25,19 @@ is a single static page.
 - **Real audio-clock timing.** A lookahead scheduler schedules notes at absolute
   `AudioContext` times. New layers enter on the next loop boundary; mute, solo,
   and removal apply immediately.
-- **Mouse and touch.** Pointer-event drag and drop (no HTML5 drag API), plus
-  tap-to-select as a fallback. Drag a character's sound off the stage to remove
-  it.
-- **Responsive.** Verified at 375 px and 1440 px. The stage scrolls horizontally
-  on phones; the sound shelf sits below it.
+- **Mouse, touch, and keyboard.** Pointer-event drag and drop (no HTML5 drag
+  API), tap-to-select, and a keyboard path: select a sound tile, focus a
+  character, press Enter to place it, or Delete/Backspace to clear it. Drag a
+  character's sound off the stage to remove it.
+- **8-bit, modern.** Dark eight-colour palette, Press Start 2P display type,
+  Inter body copy, hard 4 px frames, stepped corners, and offset shadows with no
+  gradients or blur. All characters, icons, and the logo are inline SVG pixel art.
+- **Responsive.** Verified at 375 px, 768 px, and 1440 px. The stage scrolls
+  horizontally on phones, becomes a four-column grid on tablets, and a
+  seven-column stage on desktop. The sound shelf sits below it.
 - **Explicit state.** Mute and solo expose `aria-pressed`; the beat indicator and
-  each layer's pattern dots are driven by the audio clock.
+  each layer's pattern dots are driven by the audio clock. Motion is stepped and
+  disabled under `prefers-reduced-motion`.
 
 ## Getting started
 
@@ -58,17 +64,17 @@ kept), so real keys never enter the repository.
 
 ## How to play
 
-| Action | Mouse / keyboard | Touch |
-| --- | --- | --- |
-| Start audio | Click **Tap to start** | Tap **Tap to start** |
-| Place a sound | Drag a tile onto a character, or click a tile then a character | Drag a tile onto a character, or tap a tile then a character |
-| Replace a sound | Drop another sound on an occupied character | Same |
-| Move a sound | Drag it from one character to another | Same |
-| Remove a sound | Drag it off the stage | Same |
-| Mute / solo a layer | Toggle **Mute** / **Solo** on the card | Same |
-| Stop the music | **Pause** in the header | Same |
+| Action | Mouse | Touch | Keyboard |
+| --- | --- | --- | --- |
+| Start audio | Click **START THE MIX** | Tap **START THE MIX** | Focus the button, press Enter |
+| Place a sound | Drag a tile onto a character, or click a tile then a character | Drag a tile onto a character, or tap a tile then a character | Focus a tile, press Enter, focus a character, press Enter |
+| Replace a sound | Drop another sound on an occupied character | Same | Select another sound, then press Enter on the character |
+| Move a sound | Drag it from one character to another | Same | — |
+| Remove a sound | Drag it off the stage | Same | Focus the character, press Delete or Backspace |
+| Mute / solo a layer | Toggle **Mute** / **Solo** on the card | Same | Tab to the toggle, press Space or Enter |
+| Pause the music | **PAUSE** in the header | Same | Same |
 
-The header shows tempo, a play/pause control, and an eight-dot beat indicator.
+The header shows tempo, a Play/Pause control, and an eight-step beat indicator.
 The stage header counts how many of the seven characters are performing.
 
 ## How it works
@@ -116,8 +122,8 @@ frontend/
   src/sounds.js         Sound model: categories, note table, 20 recipes
   src/characters.js     Character model: 7 slots (name, colour, accessory)
   src/audio-engine.js   Lookahead scheduler and recipe playback
-  src/main.jsx          React app: state, drag/tap handling, stage and shelf
-  src/style.css         Palette tokens and all styling
+  src/main.jsx          React app: state, drag/tap/keyboard handling, pixel UI
+  src/style.css         Eight palette tokens, 8-bit design system, responsive CSS
   index.html            Entry point
   vite.config.js        Vite config (this directory is the root)
   tailwind.config.js    Tailwind content globs
@@ -133,14 +139,16 @@ tests/                  Test stubs
 ### Stack
 
 React 18, Vite 6, Tailwind CSS (PostCSS pipeline), and the Web Audio API. No
-audio libraries, router, state manager, or UI kit. Tailwind's preflight is active,
-but the components style themselves with hand-written CSS and the palette tokens
-in `src/style.css`.
+audio libraries, router, state manager, or UI kit. Press Start 2P and Inter load
+from Google Fonts; every other visual is CSS or inline SVG drawn in code.
+Tailwind's preflight is active, but the components style themselves with
+hand-written CSS and the eight palette tokens in `src/style.css`.
 
 ## Status
 
 The browser game is complete and playable by hand: twenty sounds, seven
-characters, pattern-based layers, mute/solo, pointer drag on mouse and touch.
+characters, pattern-based layers, mute/solo, pointer drag on mouse and touch,
+keyboard placement and removal, and a responsive dark 8-bit interface.
 
 **The AI musicians have not been added yet.** Nothing in the repo decides what
 to play — there is no agent, no prompt, no model call, and the frontend opens no
@@ -174,8 +182,14 @@ and nothing in the game depends on it — the frontend plays the layers you plac
 ## Development notes
 
 - Audio and drag behaviour cannot be validated by reading code. Run the dev
-  server and check in a browser.
+  server and check in a browser at 375 px, 768 px, and 1440 px.
 - On short viewports, scroll until the stage and the sound shelf are both visible
-  before dragging (or use tap-to-select).
+  before dragging (or use tap-to-select or the keyboard path).
+- The palette is deliberately capped at eight colour variables in `:root`; extend
+  those tokens instead of introducing literal colours. Category accents and
+  component frames are aliases of those tokens.
+- Motion uses short stepped transitions and is gated behind
+  `prefers-reduced-motion`; keep new animation inside that media query.
+- `npm run build` is the only configured check — there is no lint or test runner.
 - `AGENTS.md` documents the engine invariants and conventions for contributors
   working with coding agents.
