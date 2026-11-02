@@ -1,8 +1,6 @@
 import { NOTE_HZ } from "./sounds.js";
+import { BEAT_SECONDS, LOOP_BEATS, samePattern } from "./loop.js";
 
-const BPM = 110;
-const BEAT_SECONDS = 60 / BPM;
-const LOOP_BEATS = 8;
 const LOOKAHEAD_SECONDS = 0.12;
 const TICK_MS = 25;
 const NOISE_SECONDS = 1;
@@ -68,12 +66,19 @@ export class AudioEngine {
       return;
     }
     const active = this.layers.get(slot);
-    if (active && active.sound.id === layer.sound.id && active.override === layer.override) {
+    if (active && active.sound.id === layer.sound.id && samePattern(active.override, layer.override)) {
       this.layers.set(slot, { ...active, muted: layer.muted, solo: layer.solo });
       this.pendingLayers.delete(slot);
       return;
     }
     this.pendingLayers.set(slot, layer);
+  }
+
+  // The override the loop is sounding for a slot right now, or null while the
+  // slot still sounds its authored pattern (or has no layer at all). A take
+  // that is waiting for the boundary is in `pendingLayers`, not here.
+  activeOverride(slot) {
+    return this.layers.get(slot)?.override ?? null;
   }
 
   schedule() {
@@ -183,5 +188,3 @@ export class AudioEngine {
     source.stop(time + noise.duration);
   }
 }
-
-export { BPM, LOOP_BEATS, BEAT_SECONDS };

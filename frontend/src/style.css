@@ -599,6 +599,18 @@ section {
   color: var(--accent);
 }
 
+.take-status.timeout {
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+  color: var(--text);
+}
+
+.take-status.server {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+
 .take-status.landed {
   border-color: var(--success);
   background: color-mix(in srgb, var(--success) 12%, var(--surface));

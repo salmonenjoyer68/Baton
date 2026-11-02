@@ -5,7 +5,7 @@
 // one thing these transitions must leave alone. Parsing and request building
 // are pure too, so both are tested without a browser or a model.
 
-import { LOOP_BEATS } from "./audio-engine.js";
+import { LOOP_BEATS } from "./loop.js";
 
 export const CONDUCTOR = "conductor";
 export const MODEL = "model";
@@ -37,7 +37,26 @@ export function handoff(slots, index) {
   const slot = slots[index];
   if (!slot) return slots;
   const next = [...slots];
-  next[index] = { ...slot, performer: MODEL };
+  next[index] = { ...slot, performer: MODEL, take: null };
+  return next;
+}
+
+// Place an instrument in a slot. Dropping the instrument the slot already
+// holds is not a replacement: it keeps its performer, mixing flags, override
+// and take log. A different instrument starts a fresh conductor assignment.
+export function placeInstrument(slots, index, instrument) {
+  const slot = slots[index];
+  if (slot && slot.sound.id === instrument.id) return slots;
+  const next = [...slots];
+  next[index] = {
+    sound: instrument,
+    performer: CONDUCTOR,
+    muted: slot?.muted ?? false,
+    solo: slot?.solo ?? false,
+    override: null,
+    takes: [],
+    take: null
+  };
   return next;
 }
 
@@ -47,7 +66,7 @@ export function takeBack(slots, index) {
   const slot = slots[index];
   if (!slot) return slots;
   const next = [...slots];
-  next[index] = { ...slot, performer: CONDUCTOR, override: null, takes: [] };
+  next[index] = { ...slot, performer: CONDUCTOR, override: null, takes: [], take: null };
   return next;
 }
 
@@ -63,7 +82,8 @@ export function applyTake(slots, index, pattern) {
   next[index] = {
     ...slot,
     override: [...pattern],
-    takes: [...(slot.takes ?? []), { pattern: [...pattern], rating: null }]
+    takes: [...(slot.takes ?? []), { pattern: [...pattern], rating: null }],
+    take: { status: "landed" }
   };
   return next;
 }
@@ -87,16 +107,53 @@ export function rateTake(slots, index, rating) {
   const next = [...slots];
   next[index] = {
     ...slot,
-    takes: [...takes.slice(0, -1), { ...takes[takes.length - 1], rating }]
+    takes: [...takes.slice(0, -1), { ...takes[takes.length - 1], rating }],
+    take: { status: "rated", rating }
   };
   return next;
 }
 
-// The request carries only the handed instrument (name, category, current
-// eight velocities) and the slot's take log. An empty log says this is the
-// first take; otherwise every pattern is listed oldest first with its verdict
-// so the model moves toward what was accepted and away from what was rejected.
-export function buildRequest(instrument, takeLog = []) {
+// Claim a slot for one in-flight request. The token identifies that request:
+// a reply whose token no longer sits on the slot was superseded by a handoff,
+// a replacement, a removal, or a later request, and must be dropped. A slot
+// that is empty, conductor-played, already pending, or holding an unrated take
+// is left alone.
+export function beginTake(slots, index, token) {
+  const slot = slots[index];
+  if (!slot || slot.performer !== MODEL || slot.take?.status === "pending" || hasUnratedTake(slot)) {
+    return slots;
+  }
+  const next = [...slots];
+  next[index] = { ...slot, take: { status: "pending", token } };
+  return next;
+}
+
+// Apply one reply to the slot that still carries its token. A usable take
+// becomes the override through `applyTake`; every transport failure gets its
+// own named status so the card can tell a timeout, a server error, an offline
+// server and an unusable reply apart. A stale token changes nothing.
+export function settleTake(slots, index, token, result) {
+  const slot = slots[index];
+  if (!slot || slot.take?.token !== token) return slots;
+  if (result.ok) return applyTake(slots, index, result.pattern);
+  const take = result.kind === "server"
+    ? { status: "server", code: result.status }
+    : result.kind === "unusable"
+      ? { status: "rejected", reason: result.reason }
+      : { status: result.kind };
+  const next = [...slots];
+  next[index] = { ...slot, take };
+  return next;
+}
+
+// The request carries only the handed instrument (name, category, the pattern
+// the slot is sounding) and the slot's take log. The caller passes the slot's
+// live pattern (`override ?? authored`), so a later take is told what is
+// actually playing rather than the instrument's original. An empty log says
+// this is the first take; otherwise every pattern is listed oldest first with
+// its verdict so the model moves toward what was accepted and away from what
+// was rejected.
+export function buildRequest(instrument, takeLog = [], pattern = instrument.steps) {
   const log = takeLog.length === 0
     ? ["Take log: no prior takes. This is your first take."]
     : [
@@ -104,7 +161,7 @@ export function buildRequest(instrument, takeLog = []) {
         ...takeLog.map((take, index) =>
           `Take ${index + 1} - ${take.rating ?? "unrated"}: ${take.pattern.join(", ")}`
         ),
-        "Move toward the patterns the conductor accepted and away from the ones they rejected. Do not repeat a prior pattern exactly."
+        "Move toward the patterns the conductor accepted and away from the ones they rejected."
       ];
   return {
     model: MODEL_NAME,
@@ -115,7 +172,7 @@ export function buildRequest(instrument, takeLog = []) {
       "Propose one pattern for the single instrument you were handed.",
       `Instrument: ${instrument.name}`,
       `Category: ${instrument.category}`,
-      `Current pattern, eight velocities from 0 (silent) to 1 (loudest): ${instrument.steps.join(", ")}`,
+      `Current pattern, eight velocities from 0 (silent) to 1 (loudest): ${pattern.join(", ")}`,
       ...log,
       'Reply with only a JSON object of the form {"pattern": [v0, v1, v2, v3, v4, v5, v6, v7]}.',
       "The pattern must hold exactly eight numbers, each between 0 and 1. No prose, no code fences, no other keys."
@@ -150,29 +207,59 @@ export function parseTake(text) {
   return { ok: true, pattern: [...pattern] };
 }
 
-// One request, one take. The transport is separated so the caller can tell a
-// server that cannot be reached from a reply that cannot be used.
-export async function requestTake(instrument, takeLog = [], fetchImpl = globalThis.fetch) {
-  let response;
+// One request, one take, with a deadline. The transport is separated so the
+// caller can tell a server that cannot be reached, one that answered with an
+// error status, one that took too long, and a reply that cannot be used apart.
+// The timeout frees the slot even when the transport ignores the abort signal.
+export const TAKE_TIMEOUT_MS = 30000;
+
+export async function requestTake(
+  instrument,
+  takeLog = [],
+  { pattern = instrument.steps, fetchImpl = globalThis.fetch, timeoutMs = TAKE_TIMEOUT_MS } = {}
+) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  // Race the transport against the abort so a fetch that ignores the signal
+  // cannot leave the request pending forever.
+  const deadline = new Promise((resolve, reject) => {
+    controller.signal.addEventListener("abort", () => reject(new Error("take timed out")), { once: true });
+  });
+
   try {
-    response = await fetchImpl(`${MODEL_SERVER}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRequest(instrument, takeLog))
-    });
-  } catch {
-    return { ok: false, kind: "unreachable" };
+    let response;
+    try {
+      response = await Promise.race([
+        fetchImpl(`${MODEL_SERVER}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildRequest(instrument, takeLog, pattern)),
+          signal: controller.signal
+        }),
+        deadline
+      ]);
+    } catch {
+      return timedOut ? { ok: false, kind: "timeout" } : { ok: false, kind: "unreachable" };
+    }
+    if (!response.ok) return { ok: false, kind: "server", status: response.status };
+    let envelope;
+    try {
+      envelope = await Promise.race([response.json(), deadline]);
+    } catch {
+      return timedOut
+        ? { ok: false, kind: "timeout" }
+        : { ok: false, kind: "unusable", reason: TAKE_REASONS.NO_REPLY };
+    }
+    if (!envelope || typeof envelope.response !== "string") {
+      return { ok: false, kind: "unusable", reason: TAKE_REASONS.NO_REPLY };
+    }
+    const parsed = parseTake(envelope.response);
+    return parsed.ok ? parsed : { ok: false, kind: "unusable", reason: parsed.reason };
+  } finally {
+    clearTimeout(timer);
   }
-  if (!response.ok) return { ok: false, kind: "unreachable" };
-  let envelope;
-  try {
-    envelope = await response.json();
-  } catch {
-    return { ok: false, kind: "unusable", reason: TAKE_REASONS.NO_REPLY };
-  }
-  if (!envelope || typeof envelope.response !== "string") {
-    return { ok: false, kind: "unusable", reason: TAKE_REASONS.NO_REPLY };
-  }
-  const parsed = parseTake(envelope.response);
-  return parsed.ok ? parsed : { ok: false, kind: "unusable", reason: parsed.reason };
 }

@@ -16,7 +16,7 @@ test("the shelf holds twenty instruments", () => {
   assert.equal(SOUNDS.length, SHELF_SIZE);
 });
 
-test("every instrument's pattern covers each beat of the loop exactly once", () => {
+test("every instrument's pattern is eight beats long", () => {
   for (const sound of SOUNDS) {
     assert.equal(sound.steps.length, LOOP_BEATS, `${sound.id} pattern length`);
   }

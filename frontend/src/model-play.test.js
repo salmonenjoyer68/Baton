@@ -7,15 +7,19 @@ import assert from "node:assert/strict";
 import {
   ACCEPTED,
   applyTake,
+  beginTake,
   buildRequest,
   handoff,
   hasUnratedTake,
+  MODEL,
   MODEL_NAME,
   MODEL_SERVER,
   parseTake,
+  placeInstrument,
   rateTake,
   REJECTED,
   requestTake,
+  settleTake,
   takeBack
 } from "./model-play.js";
 import { SOUNDS } from "./sounds.js";
@@ -30,6 +34,7 @@ function assignment(sound, extra = {}) {
     solo: false,
     override: null,
     takes: [],
+    take: null,
     ...extra
   };
 }
@@ -183,6 +188,17 @@ test("builds a request for one instrument with its name, category and pattern", 
   assert.equal((prompt.match(/eight/gi) ?? []).length > 0, true, "the reply shape is stated");
 });
 
+// After a take lands, the slot sounds the override, so the prompt's "current
+// pattern" must be that live pattern, not the instrument's authored one.
+test("builds the current pattern from the slot's live pattern", () => {
+  const instrument = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const live = [0, 0.3, 0, 0, 0, 0.3, 0, 0];
+  const prompt = buildRequest(instrument, [], live).prompt;
+
+  assert.match(prompt, /Current pattern[^\n]*0, 0\.3, 0, 0, 0, 0\.3, 0, 0/);
+  assert.doesNotMatch(prompt, /1, 0, 0, 0, 0\.85/, "the authored pattern is not passed off as current");
+});
+
 // The log is what lets a later take move toward what was approved. It reaches
 // the model oldest-first with every pattern and its verdict, and an empty log
 // says so instead of inventing history.
@@ -302,13 +318,176 @@ test("rating leaves the log alone when there is no unrated take", () => {
   assert.equal(rateTake(slots, 2, ACCEPTED), slots, "an empty slot changes nothing");
 });
 
+// Two takes can be in flight at once. Each request claims its slot with a
+// token, and a reply is applied only to the slot that still carries that token,
+// so the second settlement composes on the first instead of erasing it.
+test("beginTake marks a model slot pending with its token", () => {
+  const instrument = SOUNDS[0];
+  const slots = [assignment(instrument, { performer: MODEL }), null];
+  const next = beginTake(slots, 0, "take-1");
+
+  assert.equal(next[0].take.status, "pending");
+  assert.equal(next[0].take.token, "take-1");
+  assert.equal(slots[0].take, null, "the previous slot list is untouched");
+});
+
+test("beginTake refuses an empty slot, a conductor slot, a pending slot and an unrated take", () => {
+  const instrument = SOUNDS[0];
+  const conductor = assignment(instrument);
+  const pending = assignment(instrument, { performer: MODEL, take: { status: "pending", token: "t" } });
+  const unrated = assignment(instrument, {
+    performer: MODEL,
+    takes: [{ pattern: [1, 0, 1, 0, 1, 0, 1, 0], rating: null }]
+  });
+  const slots = [null, conductor, pending, unrated];
+
+  assert.equal(beginTake(slots, 0, "take-2"), slots);
+  assert.equal(beginTake(slots, 1, "take-2"), slots);
+  assert.equal(beginTake(slots, 2, "take-2"), slots);
+  assert.equal(beginTake(slots, 3, "take-2"), slots);
+});
+
+test("settleTake drops a reply whose token the slot no longer carries", () => {
+  const instrument = SOUNDS[0];
+  const slots = [assignment(instrument, { performer: MODEL, take: { status: "pending", token: "take-1" } })];
+  const pattern = [0.5, 0, 0, 0.5, 0, 0, 0.5, 0];
+
+  assert.equal(settleTake(slots, 0, "stale", { ok: true, pattern }), slots);
+  assert.equal(settleTake(slots, 1, "take-1", { ok: true, pattern }), slots);
+});
+
+test("two takes settled from the same starting list both survive", () => {
+  const first = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const second = SOUNDS.find((sound) => sound.id === "beats-clap");
+  const start = [
+    assignment(first, { performer: MODEL }),
+    assignment(second, { performer: MODEL })
+  ];
+  const inFlight = beginTake(beginTake(start, 0, "take-a"), 1, "take-b");
+  const firstPattern = [0.9, 0, 0, 0, 0.9, 0, 0, 0];
+  const secondPattern = [0, 0.4, 0, 0, 0, 0.4, 0, 0];
+
+  const afterFirst = settleTake(inFlight, 0, "take-a", { ok: true, pattern: firstPattern });
+  const afterBoth = settleTake(afterFirst, 1, "take-b", { ok: true, pattern: secondPattern });
+
+  assert.deepEqual(afterBoth[0].override, firstPattern, "the first take is not discarded");
+  assert.deepEqual(afterBoth[1].override, secondPattern, "the second take lands too");
+  assert.equal(afterBoth[0].takes.length, 1);
+  assert.equal(afterBoth[1].takes.length, 1);
+  assert.equal(afterBoth[0].take.status, "landed");
+  assert.equal(afterBoth[1].take.status, "landed");
+});
+
+test("settleTake records each transport failure as its own status", () => {
+  const instrument = SOUNDS[0];
+  const base = [assignment(instrument, { performer: MODEL })];
+
+  const failures = [
+    [{ ok: false, kind: "unreachable" }, { status: "unreachable" }],
+    [{ ok: false, kind: "timeout" }, { status: "timeout" }],
+    [{ ok: false, kind: "server", status: 500 }, { status: "server", code: 500 }],
+    [{ ok: false, kind: "unusable", reason: "not-json" }, { status: "rejected", reason: "not-json" }]
+  ];
+  for (const [result, expected] of failures) {
+    const pending = beginTake(base, 0, "take-1");
+    assert.deepEqual(settleTake(pending, 0, "take-1", result)[0].take, expected);
+  }
+});
+
+// Dropping the instrument a slot already holds is not a new assignment: the
+// performer, override and take log stay. A different instrument resets them.
+test("re-dropping the same instrument keeps the slot's take log and override", () => {
+  const instrument = SOUNDS[0];
+  const override = [0, 0.5, 0, 0, 0, 0.5, 0, 0];
+  const takes = [{ pattern: override, rating: ACCEPTED }];
+  const slot = assignment(instrument, { performer: MODEL, muted: true, override, takes });
+  const slots = [slot];
+
+  assert.equal(placeInstrument(slots, 0, instrument), slots);
+});
+
+test("placing a different instrument starts a fresh assignment", () => {
+  const previous = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const replacement = SOUNDS.find((sound) => sound.id === "beats-clap");
+  const slots = [assignment(previous, {
+    performer: MODEL,
+    muted: true,
+    solo: true,
+    override: [0, 0.5, 0, 0, 0, 0.5, 0, 0],
+    takes: [{ pattern: [0, 0.5, 0, 0, 0, 0.5, 0, 0], rating: null }]
+  })];
+  const next = placeInstrument(slots, 0, replacement);
+
+  assert.equal(next[0].sound, replacement);
+  assert.equal(next[0].performer, "conductor");
+  assert.equal(next[0].muted, true, "the mixing flags belong to the slot");
+  assert.equal(next[0].solo, true);
+  assert.equal(next[0].override, null);
+  assert.deepEqual(next[0].takes, []);
+  assert.equal(next[0].take, null);
+  assert.equal(slots[0].performer, "model", "the previous slot list is untouched");
+});
+
 // Transport classification: a server that never answered, a reply that broke
 // the contract, and an accepted take each come back as a different shape.
 test("a model server that cannot be reached is reported as unreachable", async () => {
   const instrument = SOUNDS[0];
   const offline = async () => { throw new TypeError("Failed to fetch"); };
 
-  assert.deepEqual(await requestTake(instrument, [], offline), { ok: false, kind: "unreachable" });
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: offline }), {
+    ok: false,
+    kind: "unreachable"
+  });
+});
+
+// A server that answers is not unreachable: a 404 for a mistyped model name
+// must not tell the conductor to start Ollama.
+test("a server that answers with an error status is reported as a server failure", async () => {
+  const instrument = SOUNDS[0];
+  const missingModel = async () => ({
+    ok: false,
+    status: 404,
+    json: async () => ({ error: "model 'qwen' not found" })
+  });
+  const broken = async () => ({ ok: false, status: 500, json: async () => ({}) });
+
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: missingModel }), {
+    ok: false,
+    kind: "server",
+    status: 404
+  });
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: broken }), {
+    ok: false,
+    kind: "server",
+    status: 500
+  });
+});
+
+// A request that never settles must free the slot. The transport is aborted at
+// the deadline, and a transport that ignores the signal is still abandoned.
+test("a request that outlives the timeout is aborted and reported as a timeout", async () => {
+  const instrument = SOUNDS[0];
+  let signal = null;
+  const hang = (url, init) => new Promise((resolve, reject) => {
+    signal = init.signal;
+    init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+  });
+
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: hang, timeoutMs: 5 }), {
+    ok: false,
+    kind: "timeout"
+  });
+  assert.equal(signal.aborted, true, "the transport's signal is aborted at the deadline");
+});
+
+test("a transport that ignores the abort signal still times out", async () => {
+  const instrument = SOUNDS[0];
+  const hang = () => new Promise(() => {});
+
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: hang, timeoutMs: 5 }), {
+    ok: false,
+    kind: "timeout"
+  });
 });
 
 test("a server that answers with an unusable reply names the parse reason", async () => {
@@ -318,7 +497,7 @@ test("a server that answers with an unusable reply names the parse reason", asyn
     json: async () => ({ response: "here is a groove: kick on one" })
   });
 
-  assert.deepEqual(await requestTake(instrument, [], answer), {
+  assert.deepEqual(await requestTake(instrument, [], { fetchImpl: answer }), {
     ok: false,
     kind: "unusable",
     reason: "not-json"
@@ -336,7 +515,7 @@ test("a usable reply arrives as a take", async () => {
     };
   };
 
-  const result = await requestTake(instrument, [], answer);
+  const result = await requestTake(instrument, [], { fetchImpl: answer });
 
   assert.deepEqual(result, { ok: true, pattern: [0.5, 0, 0, 0.5, 0, 0, 0.5, 0] });
   assert.equal(seen.url, `${MODEL_SERVER}/api/generate`);
@@ -359,8 +538,25 @@ test("the request sent to the server carries the take log", async () => {
     };
   };
 
-  await requestTake(instrument, takes, answer);
+  await requestTake(instrument, takes, { fetchImpl: answer });
 
   assert.match(seen.prompt, /Take 1 - rejected: 1, 0, 0, 0, 0, 0, 0, 0/);
   assert.match(seen.prompt, /Take 2 - accepted: 0, 0.5, 0, 0, 0, 0.5, 0, 0/);
+});
+
+test("the request sent to the server carries the slot's live pattern", async () => {
+  const instrument = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const live = [0, 0.3, 0, 0, 0, 0.3, 0, 0];
+  let seen = null;
+  const answer = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({ response: '{"pattern": [0.5, 0, 0, 0, 0, 0, 0, 0]}' })
+    };
+  };
+
+  await requestTake(instrument, [], { pattern: live, fetchImpl: answer });
+
+  assert.match(seen.prompt, /Current pattern[^\n]*0, 0\.3, 0, 0, 0, 0\.3, 0, 0/);
 });
