@@ -340,6 +340,10 @@ function App() {
           // while the loop runs the engine's active override is the truth.
           const soundingOverride = playing ? engine.current?.activeOverride(index) ?? null : null;
           const dotPattern = playing ? soundingOverride ?? sound?.steps : layer?.override ?? sound?.steps;
+          // The mouth follows the sounding pattern, not a generic playing flag:
+          // open only while the current beat has velocity, closed on rests.
+          // Pause and empty slots are idle; mute/solo never change expression.
+          const performing = Boolean(sound) && playing && dotPattern[beat] > 0;
           const newestTake = layer?.takes[layer.takes.length - 1] ?? null;
           const audibleTake = Boolean(
             playing && newestTake && !layer.muted && (layer.solo || !soloActive) &&
@@ -366,7 +370,7 @@ function App() {
               <CharacterArt
                 color={character.color}
                 art={character.art}
-                expression={Boolean(sound) && playing ? "performing" : "idle"}
+                expression={performing ? "performing" : "idle"}
               />
             </div>
             <strong className="character-name">{character.name}</strong>

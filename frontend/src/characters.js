@@ -7,7 +7,7 @@
 // accessory key. The shared renderer in character-art.jsx draws that geometry
 // and the shared face, so changing a character is an edit here.
 const SILHOUETTES = {
-  sol: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
+  sol: "M38 26H112V34H120V110H112V118H38V110H30V34H38Z M42 118H108V134H42Z M70 8H80V24H70Z M64 3H86V10H64Z M20 58H30V68H20Z M120 58H130V68H120Z",
   // Tall rectangular head on stepped shoulders; the sunhat breaks the top.
   pip: "M50 30H100V38H108V110H100V118H50V110H42V38H50ZM42 118H108V134H42Z",
   // Rounded blocky head; the flower sprouts from the crown.
@@ -25,11 +25,16 @@ const SILHOUETTES = {
 // Geometry is drawn in the accessory's order. A layer's `fill` is inherited by
 // its rectangles; a rectangle may set its own fill instead.
 const ACCESSORIES = {
-  sunglasses: [{ fill: "var(--bg)", rects: [
-    { x: 46, y: 62, width: 24, height: 14 },
-    { x: 80, y: 62, width: 24, height: 14 },
-    { x: 70, y: 67, width: 10, height: 4 }
-  ] }],
+  sunglasses: [
+    { fill: "var(--bg)", rects: [
+      { x: 44, y: 60, width: 28, height: 18 },
+      { x: 78, y: 60, width: 28, height: 18 },
+      { x: 72, y: 66, width: 6, height: 5 }
+    ] },
+    { fill: "var(--accent-2)", rects: [
+      { x: 72, y: 10, width: 6, height: 6 }
+    ] }
+  ],
   sunhat: [
     { fill: "var(--bg)", rects: [
       { x: 22, y: 24, width: 106, height: 16 },
