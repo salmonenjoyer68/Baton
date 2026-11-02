@@ -64,6 +64,12 @@ npm run build    # outputs to ../dist
 npm run preview
 ```
 
+Tests run on Node 22's built-in runner — nothing extra to install:
+
+```sh
+npm test         # node --test; discovers src/*.test.js
+```
+
 No environment variables, API keys, or backend services are needed to play the
 browser game.
 
@@ -270,7 +276,8 @@ you place.
   component frames are aliases of those tokens.
 - Motion uses short stepped transitions and is gated behind
   `prefers-reduced-motion`; keep new animation inside that media query.
-- `npm run build` is the only configured check — there is no lint or test runner.
+- `npm run build` and `npm test` are the configured checks — there is no lint or
+  formatter. Tests use Node's built-in runner with no added dependency.
 - `AGENTS.md` documents the engine invariants and conventions for contributors
   working with coding agents. `CONTEXT.md` defines the project's vocabulary —
   use its terms in docs and issues.
