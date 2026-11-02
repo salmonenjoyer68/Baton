@@ -8,13 +8,14 @@ Every one of the 20 instruments is synthesized at runtime with the Web Audio API
 there are no audio files and no backend of its own. The whole game is a single
 static page.
 
-> **Baton is meant to be orchestrated with models, not only by hand.** The end goal
-> is a stage where a model can be handed an instrument and decide what to play with
-> it, loop by loop, while the conductor places instruments and rates what comes
-> back. The first model-backed tool has landed as a standalone CLI DJ in
-> [`music-agent/`](music-agent/README.md): you ask for music in plain English and a
-> local Ollama model searches, queues, and plays it. It is not wired to the browser
-> game yet — there you still place every instrument yourself. See
+> **Baton is orchestrated with a model, not only by hand.** Toggle `Model` on any
+> occupied slot to hand that slot to a local Ollama model, press `Take`, and a
+> usable reply becomes that slot's override on the next loop boundary.
+> Accept or reject each take and the verdicts travel with the next request, so
+> the model can move toward what you approved while every instrument you play by
+> hand keeps its authored pattern. A separate CLI DJ in
+> [`music-agent/`](music-agent/README.md) asks a local model for music in plain
+> English and plays it; it is not connected to the browser game. See
 > [Status](#status) for exactly what exists.
 
 ![Baton 8-bit stage and instrument shelf](docs/preview.webp)
@@ -33,13 +34,14 @@ static page.
   solo. Handing a slot over marks its performer as a model and adds a `Take`
   button; one press sends one request for that instrument, and a usable reply
   becomes the slot's override on the next loop boundary. The slot card names the
-  failure — unreachable server, unusable reply with a specific reason, or a
-  request still in flight — and the pattern that is playing keeps playing.
+  failure — an unreachable server, a server error code, a timeout, an unusable
+  reply with a specific reason, or a request still in flight — and the pattern
+  that is playing keeps playing.
   Taking the slot back restores the instrument's authored pattern. Each landed
   take waits for an `Accept`/`Reject` verdict; the card lists the whole take log
   oldest-first with every pattern and verdict, and the next request carries that
   log so the model can move toward what was approved. The log stays until the
-  slot is handed back or the instrument is removed.
+  slot is handed back, or its instrument is removed or replaced.
 - **Mouse, touch, and keyboard.** Pointer-event drag and drop (no HTML5 drag
   API), tap-to-select, and a keyboard path: select an instrument tile, focus a
   character, press Enter to place it, or Delete/Backspace to clear it. Drag a
@@ -150,12 +152,14 @@ exactly eight numbers in 0–1:
 
 Anything else is rejected without changing the playing pattern, and the slot
 card says which check failed (not JSON, no pattern array, wrong length,
-non-numeric, out of range).
+non-numeric, out of range, or no reply from the server).
 
-Each request also carries the slot's take log, oldest take first, with every
-eight-velocity pattern and its verdict, so an accepted take becomes the
-direction of the next proposal and a rejected one becomes what to avoid. With
-no takes yet, the prompt says the proposal is the first.
+A request carries only the handed slot's instrument — its name, category, and
+the eight velocities currently sounding — plus that slot's take log. No other
+slot, character, or ensemble summary is sent. The log lists every take, oldest
+first, with its eight-velocity pattern and verdict, so an accepted take becomes
+the direction of the next proposal and a rejected one becomes what to avoid.
+With no takes yet, the prompt says the proposal is the first.
 
 ## How to play
 
@@ -225,6 +229,8 @@ frontend/
   src/characters.js     Character model: 7 slots (name, colour, accessory)
   src/model-play.js     Model seam: handoff/take-back/apply-take transitions,
                         strict reply parsing, and the request to the model
+  src/loop.js           Shared loop grid: BPM, LOOP_BEATS, BEAT_SECONDS,
+                        structural pattern comparison
   src/audio-engine.js   Lookahead scheduler and recipe playback
   src/main.jsx          React app: state, drag/tap/keyboard handling, pixel UI
   src/style.css         Eight palette tokens, 8-bit design system, responsive CSS
@@ -283,8 +289,9 @@ instruments — it is a separate, self-contained tool.
 | `music-agent/README.md` | Install, run, and troubleshooting for the CLI DJ |
 
 The coordinator-side performer system is still scaffolding. Nothing in
-`backend/` runs, the frontend opens no WebSocket, and no model generates a
-musical loop:
+`backend/` runs, the frontend opens no WebSocket, and no coordinator-side model
+generates a loop; the browser asks one slot at a time for a pattern and applies
+the reply itself:
 
 | Piece | State |
 | --- | --- |
