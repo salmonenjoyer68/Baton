@@ -8,12 +8,18 @@
 // and the shared face, so changing a character is an edit here.
 const SILHOUETTES = {
   sol: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  pip: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  momo: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  bubbles: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  nilla: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  cove: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z",
-  sunny: "M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z"
+  // Tall rectangular head on stepped shoulders; the sunhat breaks the top.
+  pip: "M50 30H100V38H108V110H100V118H50V110H42V38H50ZM42 118H108V134H42Z",
+  // Rounded blocky head; the flower sprouts from the crown.
+  momo: "M46 34H104V42H112V50H118V102H112V110H104V118H46V110H38V102H32V50H38V42H46ZM42 118H108V134H42Z",
+  // Widest blocky head; the snorkel crosses its right edge.
+  bubbles: "M38 44H112V50H120V56H126V106H120V112H112V118H38V112H30V106H24V56H30V50H38ZM38 118H112V134H38Z",
+  // Tapered stepped head, wide at the crown and small at the base.
+  nilla: "M28 38H122V50H116V62H110V74H104V86H100V98H96V118H54V98H50V86H46V74H40V62H34V50H28ZM46 118H104V134H46Z",
+  // Rounded blocky head, an arm to the right, and the ball beside it.
+  cove: "M52 36H98V44H106V52H110V102H106V110H98V118H52V110H44V102H40V52H44V44H52ZM42 118H108V134H42ZM102 112H118V120H102Z",
+  // Lopsided stepped head, raised at the top right under the straw.
+  sunny: "M40 60H88V52H96V40H124V60H116V72H120V100H112V108H104V118H48V110H38V100H34V84H40ZM42 118H108V134H42Z"
 };
 
 // Geometry is drawn in the accessory's order. A layer's `fill` is inherited by
@@ -24,45 +30,93 @@ const ACCESSORIES = {
     { x: 80, y: 62, width: 24, height: 14 },
     { x: 70, y: 67, width: 10, height: 4 }
   ] }],
-  sunhat: [{ rects: [
-    { x: 50, y: 22, width: 50, height: 20, fill: "var(--bg)" },
-    { x: 50, y: 36, width: 50, height: 5, fill: "var(--danger)" },
-    { x: 28, y: 42, width: 94, height: 10, fill: "var(--bg)" }
-  ] }],
-  flower: [{ rects: [
-    { x: 104, y: 28, width: 10, height: 10, fill: "var(--bg)" },
-    { x: 114, y: 38, width: 10, height: 10, fill: "var(--bg)" },
-    { x: 94, y: 38, width: 10, height: 10, fill: "var(--bg)" },
-    { x: 104, y: 48, width: 10, height: 10, fill: "var(--bg)" },
-    { x: 104, y: 38, width: 10, height: 10, fill: "var(--accent)" }
-  ] }],
-  snorkel: [{ rects: [
-    { x: 112, y: 52, width: 8, height: 46, fill: "var(--bg)" },
-    { x: 120, y: 52, width: 10, height: 8, fill: "var(--bg)" },
-    { x: 96, y: 94, width: 24, height: 8, fill: "var(--bg)" },
-    { x: 112, y: 60, width: 8, height: 8, fill: "var(--accent-2)" }
-  ] }],
-  cone: [{ rects: [
-    { x: 104, y: 12, width: 20, height: 8, fill: "var(--danger)" },
-    { x: 100, y: 20, width: 28, height: 8, fill: "var(--bg)" },
-    { x: 96, y: 28, width: 36, height: 8, fill: "var(--bg)" },
-    { x: 92, y: 36, width: 44, height: 8, fill: "var(--bg)" }
-  ] }],
-  ball: [{ rects: [
-    { x: 108, y: 96, width: 16, height: 4, fill: "var(--bg)" },
-    { x: 104, y: 100, width: 24, height: 4, fill: "var(--bg)" },
-    { x: 100, y: 104, width: 32, height: 16, fill: "var(--bg)" },
-    { x: 104, y: 120, width: 24, height: 4, fill: "var(--bg)" },
-    { x: 108, y: 124, width: 16, height: 4, fill: "var(--bg)" },
-    { x: 104, y: 104, width: 24, height: 16, fill: "var(--accent-2)" },
-    { x: 108, y: 108, width: 16, height: 4, fill: "var(--bg)" }
-  ] }],
-  straw: [{ fill: "var(--bg)", rects: [
-    { x: 96, y: 40, width: 8, height: 26 },
-    { x: 104, y: 32, width: 8, height: 8 },
-    { x: 112, y: 24, width: 8, height: 8 },
-    { x: 120, y: 16, width: 6, height: 8 }
-  ] }]
+  sunhat: [
+    { fill: "var(--bg)", rects: [
+      { x: 22, y: 24, width: 106, height: 16 },
+      { x: 52, y: 6, width: 46, height: 20 }
+    ] },
+    { fill: "var(--accent)", rects: [
+      { x: 26, y: 28, width: 98, height: 12 },
+      { x: 56, y: 10, width: 38, height: 12 }
+    ] },
+    { fill: "var(--danger)", rects: [
+      { x: 56, y: 18, width: 38, height: 4 }
+    ] }
+  ],
+  flower: [
+    { fill: "var(--success)", rects: [
+      { x: 71, y: 42, width: 8, height: 8 },
+      { x: 61, y: 46, width: 10, height: 4 },
+      { x: 79, y: 46, width: 10, height: 4 }
+    ] },
+    { fill: "var(--accent)", rects: [
+      { x: 68, y: 6, width: 12, height: 12 },
+      { x: 56, y: 18, width: 12, height: 12 },
+      { x: 80, y: 18, width: 12, height: 12 },
+      { x: 68, y: 30, width: 12, height: 12 }
+    ] },
+    { fill: "var(--accent-2)", rects: [
+      { x: 68, y: 18, width: 12, height: 12 }
+    ] }
+  ],
+  snorkel: [
+    { fill: "var(--bg)", rects: [
+      { x: 116, y: 16, width: 8, height: 80 },
+      { x: 104, y: 16, width: 12, height: 8 },
+      { x: 96, y: 88, width: 28, height: 8 }
+    ] },
+    { fill: "var(--accent-2)", rects: [
+      { x: 118, y: 28, width: 4, height: 52 },
+      { x: 96, y: 88, width: 8, height: 8 }
+    ] }
+  ],
+  cone: [
+    { fill: "var(--bg)", rects: [
+      { x: 56, y: 30, width: 38, height: 12 },
+      { x: 64, y: 14, width: 22, height: 8 }
+    ] },
+    { fill: "var(--danger)", rects: [
+      { x: 68, y: 6, width: 14, height: 8 },
+      { x: 60, y: 22, width: 30, height: 8 }
+    ] }
+  ],
+  ball: [
+    { fill: "var(--bg)", rects: [
+      { x: 126, y: 94, width: 8, height: 4 },
+      { x: 122, y: 98, width: 16, height: 4 },
+      { x: 118, y: 102, width: 24, height: 4 },
+      { x: 112, y: 106, width: 36, height: 20 },
+      { x: 118, y: 126, width: 24, height: 4 },
+      { x: 122, y: 130, width: 16, height: 4 }
+    ] },
+    { fill: "var(--accent)", rects: [
+      { x: 126, y: 98, width: 8, height: 4 },
+      { x: 122, y: 102, width: 16, height: 4 },
+      { x: 118, y: 106, width: 24, height: 4 },
+      { x: 116, y: 110, width: 28, height: 12 },
+      { x: 118, y: 122, width: 24, height: 4 },
+      { x: 122, y: 126, width: 16, height: 4 },
+      { x: 126, y: 130, width: 8, height: 4 }
+    ] },
+    { fill: "var(--bg)", rects: [
+      { x: 120, y: 114, width: 20, height: 4 },
+      { x: 130, y: 110, width: 4, height: 12 }
+    ] }
+  ],
+  straw: [
+    { fill: "var(--accent)", rects: [
+      { x: 96, y: 38, width: 40, height: 8 },
+      { x: 120, y: 30, width: 8, height: 8 },
+      { x: 124, y: 22, width: 8, height: 8 },
+      { x: 128, y: 14, width: 8, height: 8 },
+      { x: 132, y: 8, width: 6, height: 8 }
+    ] },
+    { fill: "var(--bg)", rects: [
+      { x: 112, y: 38, width: 8, height: 8 },
+      { x: 124, y: 26, width: 8, height: 4 },
+      { x: 132, y: 12, width: 6, height: 4 }
+    ] }
+  ]
 };
 
 export const CHARACTERS = [
