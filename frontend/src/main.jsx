@@ -1,12 +1,55 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { AudioEngine, BPM, BEAT_SECONDS, LOOP_BEATS } from "./audio-engine";
+import { AudioEngine } from "./audio-engine";
+import { BPM, BEAT_SECONDS, LOOP_BEATS, samePattern } from "./loop";
 import { CATEGORY_GROUPS } from "./sounds";
 import { CHARACTERS, SLOT_COUNT } from "./characters";
+import {
+  ACCEPTED,
+  beginTake,
+  handoff,
+  hasUnratedTake,
+  MODEL,
+  placeInstrument,
+  rateTake,
+  REJECTED,
+  requestTake,
+  settleTake,
+  takeBack,
+  TAKE_REASONS
+} from "./model-play";
 import "./style.css";
 
 const DRAG_THRESHOLD = 6;
 const BEAT_ANIMATION_MS = Math.round(BEAT_SECONDS * 500);
+
+// Rejections carry a stable reason name; the slot card shows this copy.
+const TAKE_REASON_TEXT = {
+  [TAKE_REASONS.NOT_JSON]: "REPLY WAS NOT JSON",
+  [TAKE_REASONS.NO_PATTERN]: "REPLY HAD NO PATTERN ARRAY",
+  [TAKE_REASONS.WRONG_LENGTH]: "PATTERN WAS NOT EIGHT BEATS",
+  [TAKE_REASONS.NON_NUMERIC]: "A VELOCITY WAS NOT A NUMBER",
+  [TAKE_REASONS.OUT_OF_RANGE]: "A VELOCITY WAS OUTSIDE 0-1",
+  [TAKE_REASONS.NO_REPLY]: "THE SERVER SENT NO REPLY"
+};
+
+// The failure-ish states must be readable as different things: a request still
+// running, a server that never answered, a server that answered with an error
+// status, a request that ran out of time, and a reply that broke the contract
+// each get their own line and colour on the card.
+function takeStatusText(takeState, audible) {
+  if (takeState.status === "pending") return "MODEL IS TAKING...";
+  if (takeState.status === "unreachable") return "MODEL UNREACHABLE // START OLLAMA";
+  if (takeState.status === "timeout") return "MODEL TOOK TOO LONG // TRY AGAIN";
+  if (takeState.status === "server") return `MODEL SERVER ERROR ${takeState.code} // CHECK THE MODEL NAME`;
+  if (takeState.status === "rejected") return `TAKE REJECTED // ${TAKE_REASON_TEXT[takeState.reason] ?? "UNUSABLE REPLY"}`;
+  if (takeState.status === "rated") {
+    return takeState.rating === ACCEPTED
+      ? "TAKE ACCEPTED // READY FOR ANOTHER"
+      : "TAKE REJECTED BY YOU // READY FOR ANOTHER";
+  }
+  return audible ? "TAKE IS PLAYING" : "TAKE LANDS ON THE NEXT LOOP";
+}
 
 // 8-bit glyphs drawn as rectangles: no external sprites, no font icons.
 const ICON_RECTS = {
@@ -105,8 +148,8 @@ function CharacterArt({ color, accessory, active }) {
 }
 
 // The layer's 8-beat pattern, with the beat that is sounding right now marked.
-function StepDots({ sound, beat, playing }) {
-  return <span className="steps" aria-hidden="true">{sound.steps.map((velocity, index) =>
+function StepDots({ pattern, beat, playing }) {
+  return <span className="steps" aria-hidden="true">{pattern.map((velocity, index) =>
     <i key={index} className={`${velocity ? "on" : ""}${playing && index === beat ? " now" : ""}`} />
   )}</span>;
 }
@@ -122,6 +165,10 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [dragView, setDragView] = useState(null);
   const [slots, setSlots] = useState(() => Array(SLOT_COUNT).fill(null));
+  // The authoritative slot list, updated before React commits so a reply that
+  // lands while another request is in flight is applied to the latest list.
+  const slotsRef = useRef(slots);
+  const takeSeq = useRef(0);
   // Overlay is modal until audio starts: everything behind it is inert.
   const inertWhenStopped = started ? undefined : "";
 
@@ -138,28 +185,85 @@ function App() {
   }, []);
 
   const activeCount = slots.filter(Boolean).length;
+  const soloActive = slots.some((entry) => entry?.solo);
 
-  const setSlot = (slot, layer) => {
-    setSlots((current) => { const next = [...current]; next[slot] = layer; return next; });
-    engine.current?.setLayer(slot, layer);
+  // Every slot change goes through here: the transition derives from the
+  // latest list (never from the list this render started with), the ref is
+  // updated before React's state, and the engine hears about exactly the slots
+  // that changed. Take status lives on the slot, so clearing it — an
+  // assignment, removal, move or handoff — invalidates any reply in flight
+  // through its token.
+  const commitSlots = (transition) => {
+    const previous = slotsRef.current;
+    const next = transition(previous);
+    if (next === previous) return next;
+    slotsRef.current = next;
+    setSlots(next);
+    for (let index = 0; index < next.length; index += 1) {
+      if (next[index] !== previous[index]) engine.current?.setLayer(index, next[index]);
+    }
+    return next;
   };
   const assign = (slot, sound) => {
-    const previous = slots[slot];
-    setSlot(slot, { sound, muted: previous?.muted ?? false, solo: previous?.solo ?? false });
+    // Re-dropping the instrument already in the slot is not a new assignment.
+    commitSlots((current) => placeInstrument(current, slot, sound));
     setSelected(null);
   };
-  const remove = (slot) => setSlot(slot, null);
+  const remove = (slot) => {
+    commitSlots((current) => {
+      if (!current[slot]) return current;
+      const next = [...current];
+      next[slot] = null;
+      return next;
+    });
+  };
   const move = (from, to) => {
-    const layer = slots[from];
-    if (!layer) return;
-    setSlot(to, layer);
-    setSlot(from, null);
+    commitSlots((current) => {
+      const layer = current[from];
+      if (!layer) return current;
+      const next = [...current];
+      next[to] = { ...layer, take: null };
+      next[from] = null;
+      return next;
+    });
     setSelected(null);
   };
   const toggleLayer = (slot, key) => {
-    const layer = slots[slot];
-    if (!layer) return;
-    setSlot(slot, { ...layer, [key]: !layer[key] });
+    commitSlots((current) => {
+      const layer = current[slot];
+      if (!layer) return current;
+      const next = [...current];
+      next[slot] = { ...layer, [key]: !layer[key] };
+      return next;
+    });
+  };
+  // Handoff is a per-slot toggle: model takes the assignment, or gives it back
+  // with the override and take log cleared. Both transitions drop a transient
+  // take status, so a reply still in flight is ignored by its token.
+  const togglePerformer = (slot) => {
+    commitSlots((current) =>
+      current[slot]?.performer === MODEL ? takeBack(current, slot) : handoff(current, slot)
+    );
+  };
+  // One press, one request. `beginTake` claims the slot with a token; the reply
+  // is applied only while that token is still on the slot, and `settleTake`
+  // derives from the latest slot list so takes landing together cannot clobber
+  // each other. The engine enters the new override on the next loop boundary.
+  const takeFromModel = async (slot) => {
+    takeSeq.current += 1;
+    const token = `take-${takeSeq.current}`;
+    const started = commitSlots((current) => beginTake(current, slot, token));
+    const layer = started[slot];
+    if (!layer || layer.take?.token !== token) return;
+    const result = await requestTake(layer.sound, layer.takes, {
+      pattern: layer.override ?? layer.sound.steps
+    });
+    commitSlots((current) => settleTake(current, slot, token, result));
+  };
+  // The verdict is part of the assignment, not transient UI state: it stays in
+  // the take log until the slot is handed back or the instrument is removed.
+  const rateTakeOnSlot = (slot, rating) => {
+    commitSlots((current) => rateTake(current, slot, rating));
   };
   const togglePlay = async () => {
     if (starting || !engine.current) return;
@@ -259,7 +363,6 @@ function App() {
       <nav className="nav" aria-label="Sections">
         <a className="nav-link" href="#stage">STAGE</a>
         <a className="nav-link" href="#sounds">SOUNDS</a>
-        <a className="nav-link" href="#how">HOW</a>
       </nav>
       <div className="topbar-actions">
         <span className="bpm-badge">{BPM} BPM</span>
@@ -276,24 +379,8 @@ function App() {
           <p className="intro">Baton is a browser beat lab. Drop a sound on a character, stack layers until the loop feels good, and mute anything that gets in the way. Every sound is generated live and locked to the same eight-beat grid.</p>
           <div className="hero-actions">
             <a className="primary-link pixel pixel-btn" href="#stage"><span>OPEN THE STAGE</span></a>
-            <a className="text-link" href="#how">HOW IT WORKS</a>
           </div>
         </div>
-        <aside className="hero-card pixel" aria-label="Loop information">
-          <div className="hero-card-inner">
-            <div className="card-head">
-              <span>LOOP INFO</span>
-              <span className={playing ? "status-live" : "status-idle"}>{playing ? "RUNNING" : "PAUSED"}</span>
-            </div>
-            <dl className="stat-list">
-              <div><dt>TEMPO</dt><dd>{BPM}<small>BPM</small></dd></div>
-              <div><dt>GRID</dt><dd>{LOOP_BEATS}<small>BEATS</small></dd></div>
-              <div><dt>SOUNDS</dt><dd>20<small>PROCEDURAL</small></dd></div>
-              <div><dt>KEY</dt><dd>C MINOR<small>PENTATONIC</small></dd></div>
-            </dl>
-            <p className="card-note" role="status">{activeCount ? `${activeCount} of 7 characters in the mix.` : "All seven slots are empty. Pick a sound below."}</p>
-          </div>
-        </aside>
       </section>
       <section className="stage-section" id="stage">
         <div className="section-head">
@@ -307,22 +394,37 @@ function App() {
             )}
           </div>
         </div>
-        <p className="section-hint">Drag a sound onto a character. Drag a character's sound off the stage to clear the slot. Tap works too. With a keyboard, pick a sound, then press Enter on a character.</p>
+        <p className="section-hint">An {LOOP_BEATS}-beat loop in C minor pentatonic: 20 instruments across {SLOT_COUNT} characters. Drag a sound onto a character. Drag a character's sound off the stage to clear the slot. Tap works too. With a keyboard, pick a sound, then press Enter on a character.</p>
         <div className="stage" style={{ "--beat-ms": `${BEAT_ANIMATION_MS}ms` }}>{slots.map((layer, index) => {
           const sound = layer ? layer.sound : null;
           const character = CHARACTERS[index];
+          const takeState = layer?.take ?? null;
+          const openTake = Boolean(layer && layer.performer === MODEL && hasUnratedTake(layer));
+          // What the loop is sounding right now, not what the slot is about to
+          // sound: a take and a take-back both wait for the loop boundary, so
+          // while the loop runs the engine's active override is the truth.
+          const soundingOverride = playing ? engine.current?.activeOverride(index) ?? null : null;
+          const dotPattern = playing ? soundingOverride ?? sound?.steps : layer?.override ?? sound?.steps;
+          const newestTake = layer?.takes[layer.takes.length - 1] ?? null;
+          const audibleTake = Boolean(
+            playing && newestTake && !layer.muted && (layer.solo || !soloActive) &&
+            samePattern(soundingOverride, newestTake.pattern)
+          );
           return <div
             className={`slot pixel ${sound ? `occupied ${sound.category}` : "empty"} ${dragView?.over === index ? "drop-target" : ""}`}
             key={character.id}
             data-slot={index}
             tabIndex={0}
             role="group"
-            aria-label={`${character.name} slot, ${sound ? sound.name : "empty"}${selected ? ", selected sound ready" : ""}`}
+            aria-label={`${character.name} slot, ${sound ? `${sound.name}, played by ${layer.performer === "model" ? "the model" : "the conductor"}` : "empty"}${selected ? ", selected sound ready" : ""}`}
             onKeyDown={(event) => handleSlotKey(event, index)}
             onPointerDown={(event) => { if (event.target.closest("button")) return; beginDrag(event, sound, index); }}
           >
             <div className="slot-top">
               <span className="slot-number">{String(index + 1).padStart(2, "0")}</span>
+              {sound && <span className={`slot-performer ${layer.performer === "model" ? "is-model" : ""}`}>
+                {layer.performer === "model" ? "MODEL" : "CONDUCTOR"}
+              </span>}
               <span className={`slot-state ${sound ? "state-on" : ""}`}>{sound ? "ON" : "OFF"}</span>
             </div>
             <div className={`character ${playing && sound ? "character-beat" : ""}`} key={playing && sound ? beat : "rest"}>
@@ -332,11 +434,35 @@ function App() {
             {sound
               ? <>
                   <span className={`chip ${sound.category}`}>{sound.name}</span>
-                  <StepDots sound={sound} beat={beat} playing={playing} />
+                  <StepDots pattern={dotPattern} beat={beat} playing={playing} />
                   <div className="slot-toggles">
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.muted ? "on" : ""}`} aria-pressed={layer.muted} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "muted"); }}><span>MUTE</span></button>
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.solo ? "on" : ""}`} aria-pressed={layer.solo} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "solo"); }}><span>SOLO</span></button>
+                    <button type="button" className={`toggle-btn handoff pixel pixel-btn ${layer.performer === "model" ? "on" : ""}`} aria-pressed={layer.performer === "model"} aria-label={layer.performer === "model" ? `Take ${sound.name} back from the model` : `Hand ${sound.name} to the model`} onClick={(event) => { event.stopPropagation(); togglePerformer(index); }}><span>MODEL</span></button>
+                    {layer.performer === "model" && <button
+                      type="button"
+                      className="toggle-btn take pixel pixel-btn"
+                      aria-label={openTake ? `Rate the current take on ${sound.name} before asking for another` : `Ask the model for a take on ${sound.name}`}
+                      disabled={takeState?.status === "pending" || openTake}
+                      onClick={(event) => { event.stopPropagation(); takeFromModel(index); }}
+                    ><span>{takeState?.status === "pending" ? "TAKING" : "TAKE"}</span></button>}
                   </div>
+                  {layer.performer === "model" && takeState && <p className={`take-status ${takeState.status}`} role="status">{takeStatusText(takeState, audibleTake)}</p>}
+                  {openTake && <div className="rating-actions" role="group" aria-label={`Rate the latest take on ${sound.name}`}>
+                    <button type="button" className="rating-btn accept pixel pixel-btn" onClick={(event) => { event.stopPropagation(); rateTakeOnSlot(index, ACCEPTED); }}><span>ACCEPT</span></button>
+                    <button type="button" className="rating-btn reject pixel pixel-btn" onClick={(event) => { event.stopPropagation(); rateTakeOnSlot(index, REJECTED); }}><span>REJECT</span></button>
+                  </div>}
+                  {layer.performer === "model" && layer.takes.length > 0 && <div className="take-log">
+                    <p className="take-log-title">TAKE LOG</p>
+                    <ol aria-label="Take log, oldest first">
+                      {layer.takes.map((take, takeIndex) => <li key={takeIndex} className={take.rating ?? "unrated"}>
+                        <span className="take-log-index">#{takeIndex + 1}</span>
+                        <span className="take-log-pattern">{take.pattern.join(" ")}</span>
+                        <span className="take-log-rating">{take.rating ? take.rating.toUpperCase() : "UNRATED"}</span>
+                        {takeIndex === layer.takes.length - 1 && <span className="take-log-now">{audibleTake ? "PLAYING" : "PENDING"}</span>}
+                      </li>)}
+                    </ol>
+                  </div>}
                 </>
               : <span className="empty-label">{selected ? "TAP TO PLACE" : "NO SOUND"}</span>}
           </div>;
@@ -368,37 +494,6 @@ function App() {
             <span className="dot" aria-hidden="true" />
           </button>)}</div>
         </div>)}
-      </section>
-      <section className="how-section" id="how">
-        <div className="section-head">
-          <div>
-            <p className="section-kicker">03 // CONTROLS</p>
-            <h2>HOW TO CONDUCT</h2>
-          </div>
-        </div>
-        <ol className="how-grid">
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">01</span>
-              <h3>PICK A SOUND</h3>
-              <p>Tap any tile in the shelf, then tap the character who should play it. Prefer dragging? Pull the tile onto the stage.</p>
-            </div>
-          </li>
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">02</span>
-              <h3>LOCK THE LOOP</h3>
-              <p>Every layer joins on the next loop boundary, so a new sound never stumbles in halfway through the bar.</p>
-            </div>
-          </li>
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">03</span>
-              <h3>SHAPE THE MIX</h3>
-              <p>Replace a sound by dropping another on top. Mute one layer, solo another, or drag a sound off the stage to clear it.</p>
-            </div>
-          </li>
-        </ol>
       </section>
     </main>
     <footer className="footer" inert={inertWhenStopped}>
