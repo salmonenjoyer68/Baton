@@ -4,6 +4,7 @@ import { AudioEngine } from "./audio-engine";
 import { BPM, BEAT_SECONDS, LOOP_BEATS, samePattern } from "./loop";
 import { CATEGORY_GROUPS } from "./sounds";
 import { CHARACTERS, SLOT_COUNT } from "./characters";
+import { CharacterArt } from "./character-art";
 import {
   ACCEPTED,
   beginTake,
@@ -78,72 +79,6 @@ function PixelBaton() {
     <rect x="11" y="8" width="3" height="3" fill="var(--accent)" />
     <rect x="14" y="5" width="3" height="3" fill="var(--accent)" />
     <rect x="17" y="2" width="2" height="2" fill="var(--text)" />
-  </svg>;
-}
-
-function CharacterArt({ color, accessory, active }) {
-  return <svg className="character-art pixel-art" viewBox="0 0 150 150" aria-hidden="true">
-    <rect x="44" y="134" width="62" height="6" fill="var(--muted)" />
-    <path
-      d="M44 24H106V32H118V44H126V112H118V124H106V132H44V124H32V112H24V44H32V32H44Z"
-      style={{ fill: color }}
-      stroke="var(--bg)"
-      strokeWidth="8"
-      strokeLinejoin="miter"
-      paintOrder="stroke"
-    />
-    <rect x="56" y="66" width="10" height="12" fill="var(--bg)" />
-    <rect x="84" y="66" width="10" height="12" fill="var(--bg)" />
-    {active
-      ? <>
-          <rect x="58" y="94" width="34" height="20" fill="var(--bg)" />
-          <rect x="70" y="106" width="10" height="6" fill="var(--danger)" />
-        </>
-      : <rect x="62" y="100" width="26" height="5" fill="var(--bg)" />}
-    {accessory === "sunglasses" && <g fill="var(--bg)">
-      <rect x="46" y="62" width="24" height="14" />
-      <rect x="80" y="62" width="24" height="14" />
-      <rect x="70" y="67" width="10" height="4" />
-    </g>}
-    {accessory === "sunhat" && <g>
-      <rect x="50" y="22" width="50" height="20" fill="var(--bg)" />
-      <rect x="50" y="36" width="50" height="5" fill="var(--danger)" />
-      <rect x="28" y="42" width="94" height="10" fill="var(--bg)" />
-    </g>}
-    {accessory === "flower" && <g>
-      <rect x="104" y="28" width="10" height="10" fill="var(--bg)" />
-      <rect x="114" y="38" width="10" height="10" fill="var(--bg)" />
-      <rect x="94" y="38" width="10" height="10" fill="var(--bg)" />
-      <rect x="104" y="48" width="10" height="10" fill="var(--bg)" />
-      <rect x="104" y="38" width="10" height="10" fill="var(--accent)" />
-    </g>}
-    {accessory === "snorkel" && <g>
-      <rect x="112" y="52" width="8" height="46" fill="var(--bg)" />
-      <rect x="120" y="52" width="10" height="8" fill="var(--bg)" />
-      <rect x="96" y="94" width="24" height="8" fill="var(--bg)" />
-      <rect x="112" y="60" width="8" height="8" fill="var(--accent-2)" />
-    </g>}
-    {accessory === "cone" && <g>
-      <rect x="104" y="12" width="20" height="8" fill="var(--danger)" />
-      <rect x="100" y="20" width="28" height="8" fill="var(--bg)" />
-      <rect x="96" y="28" width="36" height="8" fill="var(--bg)" />
-      <rect x="92" y="36" width="44" height="8" fill="var(--bg)" />
-    </g>}
-    {accessory === "ball" && <g>
-      <rect x="108" y="96" width="16" height="4" fill="var(--bg)" />
-      <rect x="104" y="100" width="24" height="4" fill="var(--bg)" />
-      <rect x="100" y="104" width="32" height="16" fill="var(--bg)" />
-      <rect x="104" y="120" width="24" height="4" fill="var(--bg)" />
-      <rect x="108" y="124" width="16" height="4" fill="var(--bg)" />
-      <rect x="104" y="104" width="24" height="16" fill="var(--accent-2)" />
-      <rect x="108" y="108" width="16" height="4" fill="var(--bg)" />
-    </g>}
-    {accessory === "straw" && <g fill="var(--bg)">
-      <rect x="96" y="40" width="8" height="26" />
-      <rect x="104" y="32" width="8" height="8" />
-      <rect x="112" y="24" width="8" height="8" />
-      <rect x="120" y="16" width="6" height="8" />
-    </g>}
   </svg>;
 }
 
@@ -428,7 +363,11 @@ function App() {
               <span className={`slot-state ${sound ? "state-on" : ""}`}>{sound ? "ON" : "OFF"}</span>
             </div>
             <div className={`character ${playing && sound ? "character-beat" : ""}`} key={playing && sound ? beat : "rest"}>
-              <CharacterArt color={character.color} accessory={character.accessory} active={Boolean(sound) && playing} />
+              <CharacterArt
+                color={character.color}
+                art={character.art}
+                expression={Boolean(sound) && playing ? "performing" : "idle"}
+              />
             </div>
             <strong className="character-name">{character.name}</strong>
             {sound
