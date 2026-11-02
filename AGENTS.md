@@ -49,10 +49,17 @@ cd frontend
 npm install
 npm run dev     # vite, port 5173
 npm run build
+npm test        # node --test, no dependency
 ```
 
 There is no root `package.json`; always run from `frontend/`.
-There is no lint, formatter, or test runner configured.
+There is no lint or formatter configured.
+
+Tests use Node's built-in runner (`node --test`, Node 22+), so nothing is
+installed. Put a test beside the module it covers as `<module>.test.js`; the
+runner discovers `*.test.js` under `frontend/` (excluding `node_modules/`) and
+exits non-zero when any assertion fails. Prefer plain `node:test` and
+`node:assert/strict` imports over a local helper.
 
 ## Audio engine invariants
 
