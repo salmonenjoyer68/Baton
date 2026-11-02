@@ -11,7 +11,7 @@ comes from the palette tokens and is never the thing that tells characters
 apart. The full 118 px art box is available; card height, grid and surrounding
 spacing stay fixed.
 
-**Status**: proposed — accepted once all seven characters ship in this grammar.
+**Status**: accepted.
 
 ## Considered Options
 
