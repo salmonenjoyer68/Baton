@@ -5,12 +5,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  ACCEPTED,
   applyTake,
   buildRequest,
   handoff,
+  hasUnratedTake,
   MODEL_NAME,
   MODEL_SERVER,
   parseTake,
+  rateTake,
+  REJECTED,
   requestTake,
   takeBack
 } from "./model-play.js";
@@ -179,6 +183,39 @@ test("builds a request for one instrument with its name, category and pattern", 
   assert.equal((prompt.match(/eight/gi) ?? []).length > 0, true, "the reply shape is stated");
 });
 
+// The log is what lets a later take move toward what was approved. It reaches
+// the model oldest-first with every pattern and its verdict, and an empty log
+// says so instead of inventing history.
+test("builds a request with no prior takes when the log is empty", () => {
+  const instrument = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const prompt = buildRequest(instrument, []).prompt;
+
+  assert.match(prompt, /no prior takes/i);
+  assert.match(prompt, /first take/i);
+  assert.doesNotMatch(prompt, /Take 1\b/);
+  assert.doesNotMatch(prompt, /accepted|rejected/i, "no verdict is claimed when none exists");
+});
+
+test("builds a request with the mixed verdict log oldest to newest", () => {
+  const instrument = SOUNDS.find((sound) => sound.id === "beats-kick");
+  const takes = [
+    { pattern: [1, 0, 0, 0, 0.5, 0, 0, 0], rating: ACCEPTED },
+    { pattern: [0, 0.25, 0, 0.5, 0, 0.25, 0, 0.5], rating: REJECTED },
+    { pattern: [0.75, 0, 0.25, 0, 0.75, 0, 0.25, 0], rating: ACCEPTED }
+  ];
+  const prompt = buildRequest(instrument, takes).prompt;
+
+  const first = prompt.indexOf("1, 0, 0, 0, 0.5, 0, 0, 0");
+  const second = prompt.indexOf("0, 0.25, 0, 0.5, 0, 0.25, 0, 0.5");
+  const third = prompt.indexOf("0.75, 0, 0.25, 0, 0.75, 0, 0.25, 0");
+  assert.ok(first >= 0 && second > first && third > second, "the log is in oldest-first order");
+  assert.match(prompt, /Take 1 - accepted:/);
+  assert.match(prompt, /Take 2 - rejected:/);
+  assert.match(prompt, /Take 3 - accepted:/);
+  assert.match(prompt, /move toward/i, "accepted takes are named as the direction");
+  assert.match(prompt, /away from/i, "rejected takes are named as what to avoid");
+});
+
 // Applying a take is the pure transition the scheduler reads: the override
 // belongs to the slot, while the instrument's authored pattern and every other
 // slot holding that instrument stay untouched.
@@ -209,13 +246,69 @@ test("applying a take to an empty slot changes nothing", () => {
   assert.equal(applyTake(slots, 0, [1, 0, 1, 0, 1, 0, 1, 0]), slots);
 });
 
+// Every landed take joins the slot's take log oldest-first and starts unrated,
+// so the next request can carry it and the conductor cannot skip a verdict.
+test("a landed take joins the log unrated", () => {
+  const instrument = SOUNDS[0];
+  const prior = { pattern: [1, 0, 0, 0, 0, 0, 0, 0], rating: REJECTED };
+  const slots = [assignment(instrument, { performer: "model", takes: [prior] })];
+  const pattern = [0, 0, 0.5, 0, 0, 0, 0.5, 0];
+  const next = applyTake(slots, 0, pattern);
+
+  assert.deepEqual(next[0].takes, [prior, { pattern, rating: null }]);
+  assert.notEqual(next[0].takes, slots[0].takes, "the slot owns its log, not the caller's array");
+  assert.notEqual(next[0].takes[1].pattern, pattern, "the log owns its pattern, not the caller's array");
+  assert.deepEqual(slots[0].takes, [prior], "the previous slot list is untouched");
+});
+
+test("hasUnratedTake is true only while the latest take lacks a verdict", () => {
+  const instrument = SOUNDS[0];
+  assert.equal(hasUnratedTake(assignment(instrument)), false, "a slot with no takes is not blocked");
+  const landed = applyTake([assignment(instrument, { performer: "model" })], 0, [0, 1, 0, 1, 0, 1, 0, 1]);
+  assert.equal(hasUnratedTake(landed[0]), true);
+  const rated = rateTake(landed, 0, ACCEPTED);
+  assert.equal(hasUnratedTake(rated[0]), false, "the next take may be requested after a verdict");
+});
+
+test("rating a take records the verdict on the newest take only", () => {
+  const instrument = SOUNDS[0];
+  const authored = [...instrument.steps];
+  const first = { pattern: [1, 0, 0, 0, 0, 0, 0, 0], rating: REJECTED };
+  const second = { pattern: [0, 0.5, 0, 0, 0, 0.5, 0, 0], rating: null };
+  const override = [...second.pattern];
+  const neighbour = assignment(instrument, { performer: "model", takes: [first] });
+  const slots = [assignment(instrument, { performer: "model", override, takes: [first, second] }), neighbour];
+  const next = rateTake(slots, 0, ACCEPTED);
+
+  assert.deepEqual(next[0].takes, [first, { pattern: second.pattern, rating: ACCEPTED }]);
+  assert.deepEqual(next[0].override, override, "the sounding pattern is unchanged by a verdict");
+  assert.equal(next[1], neighbour, "the neighbouring assignment is not replaced");
+  assert.deepEqual(instrument.steps, authored, "the instrument's authored pattern is unchanged");
+  assert.equal(slots[0].takes[1].rating, null, "the previous slot list is untouched");
+  assert.equal(slots[0].takes[0], first, "the earlier verdict is untouched");
+});
+
+test("rating leaves the log alone when there is no unrated take", () => {
+  const instrument = SOUNDS[0];
+  const rated = assignment(instrument, {
+    performer: "model",
+    takes: [{ pattern: [1, 0, 1, 0, 1, 0, 1, 0], rating: ACCEPTED }]
+  });
+  const noTakes = assignment(instrument, { performer: "model" });
+  const slots = [rated, noTakes, null];
+
+  assert.equal(rateTake(slots, 0, REJECTED), slots, "a recorded verdict is not overwritten");
+  assert.equal(rateTake(slots, 1, ACCEPTED), slots, "there is no take to rate");
+  assert.equal(rateTake(slots, 2, ACCEPTED), slots, "an empty slot changes nothing");
+});
+
 // Transport classification: a server that never answered, a reply that broke
 // the contract, and an accepted take each come back as a different shape.
 test("a model server that cannot be reached is reported as unreachable", async () => {
   const instrument = SOUNDS[0];
   const offline = async () => { throw new TypeError("Failed to fetch"); };
 
-  assert.deepEqual(await requestTake(instrument, offline), { ok: false, kind: "unreachable" });
+  assert.deepEqual(await requestTake(instrument, [], offline), { ok: false, kind: "unreachable" });
 });
 
 test("a server that answers with an unusable reply names the parse reason", async () => {
@@ -225,7 +318,7 @@ test("a server that answers with an unusable reply names the parse reason", asyn
     json: async () => ({ response: "here is a groove: kick on one" })
   });
 
-  assert.deepEqual(await requestTake(instrument, answer), {
+  assert.deepEqual(await requestTake(instrument, [], answer), {
     ok: false,
     kind: "unusable",
     reason: "not-json"
@@ -243,10 +336,31 @@ test("a usable reply arrives as a take", async () => {
     };
   };
 
-  const result = await requestTake(instrument, answer);
+  const result = await requestTake(instrument, [], answer);
 
   assert.deepEqual(result, { ok: true, pattern: [0.5, 0, 0, 0.5, 0, 0, 0.5, 0] });
   assert.equal(seen.url, `${MODEL_SERVER}/api/generate`);
   assert.equal(seen.body.model, MODEL_NAME);
   assert.match(seen.body.prompt, /Kick bloom/);
+});
+
+test("the request sent to the server carries the take log", async () => {
+  const instrument = SOUNDS[0];
+  const takes = [
+    { pattern: [1, 0, 0, 0, 0, 0, 0, 0], rating: REJECTED },
+    { pattern: [0, 0.5, 0, 0, 0, 0.5, 0, 0], rating: ACCEPTED }
+  ];
+  let seen = null;
+  const answer = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({ response: '{"pattern": [0.5, 0, 0, 0, 0, 0, 0, 0]}' })
+    };
+  };
+
+  await requestTake(instrument, takes, answer);
+
+  assert.match(seen.prompt, /Take 1 - rejected: 1, 0, 0, 0, 0, 0, 0, 0/);
+  assert.match(seen.prompt, /Take 2 - accepted: 0, 0.5, 0, 0, 0, 0.5, 0, 0/);
 });

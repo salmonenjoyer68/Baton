@@ -10,6 +10,11 @@ import { LOOP_BEATS } from "./audio-engine.js";
 export const CONDUCTOR = "conductor";
 export const MODEL = "model";
 
+// The two verdicts a conductor can give a landed take. A take starts unrated
+// (null) and must be rated before another request is allowed.
+export const ACCEPTED = "accepted";
+export const REJECTED = "rejected";
+
 // Swapping models is a two-line edit: the server address and the model name.
 // The README documents the origin allow-list the browser needs from the server.
 export const MODEL_SERVER = "http://127.0.0.1:11434";
@@ -47,19 +52,60 @@ export function takeBack(slots, index) {
 }
 
 // A take becomes the slot's override; the scheduler's pending/current split
-// makes it enter on the next loop boundary. The instrument and its authored
-// pattern are untouched, so the shelf and every other slot keep playing theirs.
+// makes it enter on the next loop boundary. It also joins the take log unrated:
+// the conductor must judge it before the model may take another turn. The
+// instrument and its authored pattern are untouched, so the shelf and every
+// other slot keep playing theirs.
 export function applyTake(slots, index, pattern) {
   const slot = slots[index];
   if (!slot) return slots;
   const next = [...slots];
-  next[index] = { ...slot, override: [...pattern] };
+  next[index] = {
+    ...slot,
+    override: [...pattern],
+    takes: [...(slot.takes ?? []), { pattern: [...pattern], rating: null }]
+  };
   return next;
 }
 
-// The request carries only the handed instrument: its name, its category and
-// its current eight velocities. Ask for one JSON object and forbid prose.
-export function buildRequest(instrument) {
+// True while the latest take has no verdict. The card disables TAKE and the
+// request path refuses to run until the conductor accepts or rejects it.
+export function hasUnratedTake(slot) {
+  const takes = slot?.takes;
+  return Boolean(takes && takes.length > 0 && takes[takes.length - 1].rating === null);
+}
+
+// Record the conductor's verdict on the newest take. Earlier verdicts and the
+// sounding pattern stay as they are; with nothing unrated this changes nothing.
+export function rateTake(slots, index, rating) {
+  if (rating !== ACCEPTED && rating !== REJECTED) {
+    throw new TypeError(`unknown rating: ${rating}`);
+  }
+  const slot = slots[index];
+  if (!slot || !hasUnratedTake(slot)) return slots;
+  const takes = slot.takes;
+  const next = [...slots];
+  next[index] = {
+    ...slot,
+    takes: [...takes.slice(0, -1), { ...takes[takes.length - 1], rating }]
+  };
+  return next;
+}
+
+// The request carries only the handed instrument (name, category, current
+// eight velocities) and the slot's take log. An empty log says this is the
+// first take; otherwise every pattern is listed oldest first with its verdict
+// so the model moves toward what was accepted and away from what was rejected.
+export function buildRequest(instrument, takeLog = []) {
+  const log = takeLog.length === 0
+    ? ["Take log: no prior takes. This is your first take."]
+    : [
+        "Take log, oldest take first. Each line is the pattern and the conductor's verdict:",
+        ...takeLog.map((take, index) =>
+          `Take ${index + 1} - ${take.rating ?? "unrated"}: ${take.pattern.join(", ")}`
+        ),
+        "Move toward the patterns the conductor accepted and away from the ones they rejected. Do not repeat a prior pattern exactly."
+      ];
   return {
     model: MODEL_NAME,
     stream: false,
@@ -70,6 +116,7 @@ export function buildRequest(instrument) {
       `Instrument: ${instrument.name}`,
       `Category: ${instrument.category}`,
       `Current pattern, eight velocities from 0 (silent) to 1 (loudest): ${instrument.steps.join(", ")}`,
+      ...log,
       'Reply with only a JSON object of the form {"pattern": [v0, v1, v2, v3, v4, v5, v6, v7]}.',
       "The pattern must hold exactly eight numbers, each between 0 and 1. No prose, no code fences, no other keys."
     ].join("\n")
@@ -105,13 +152,13 @@ export function parseTake(text) {
 
 // One request, one take. The transport is separated so the caller can tell a
 // server that cannot be reached from a reply that cannot be used.
-export async function requestTake(instrument, fetchImpl = globalThis.fetch) {
+export async function requestTake(instrument, takeLog = [], fetchImpl = globalThis.fetch) {
   let response;
   try {
     response = await fetchImpl(`${MODEL_SERVER}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRequest(instrument))
+      body: JSON.stringify(buildRequest(instrument, takeLog))
     });
   } catch {
     return { ok: false, kind: "unreachable" };
