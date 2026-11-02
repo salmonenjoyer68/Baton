@@ -530,6 +530,22 @@ section {
 
 .slot-state.state-on { color: var(--tile); }
 
+.slot-performer {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "Press Start 2P", "Courier New", monospace;
+  font-size: 6px;
+  letter-spacing: 0;
+  line-height: 1.6;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot-performer.is-model { color: var(--accent-2); }
+
 .character {
   display: grid;
   place-items: end center;
@@ -586,6 +602,7 @@ section {
 
 .slot-toggles {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
   margin-top: 8px;
@@ -593,11 +610,13 @@ section {
 
 .toggle-btn {
   --edge: var(--muted);
-  min-width: 58px;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 44px;
-  padding: 11px 9px;
+  padding: 11px 4px;
   color: var(--muted);
   font-size: 7px;
+  letter-spacing: 0;
 }
 
 .toggle-btn:hover {
@@ -610,6 +629,8 @@ section {
   --edge: var(--text);
   color: var(--bg);
 }
+
+.toggle-btn.handoff.on { --fill: var(--accent); }
 
 .empty-label {
   display: block;

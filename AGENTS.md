@@ -27,6 +27,7 @@ vocabulary — use its terms in docs, issues, and code comments.
 frontend/
   src/sounds.js          Sound model: categories, note table, 20 recipes + patterns
   src/characters.js      Character model: 7 slots (name, blob colour, accessory)
+  src/model-play.js      Pure slot transitions: handoff and take-back
   src/main.jsx           React app: state, slot rendering, drag/tap handlers
   src/audio-engine.js    AudioEngine class: Web Audio scheduler + recipe playback
   src/style.css          All styling, hand-written CSS + palette variables
@@ -72,17 +73,19 @@ These are load-bearing; changes here need a browser check, not just a read:
 - `schedule()` skips forward on the grid when the ticker falls behind (background
   tab), so it never schedules notes in the past or bursts to catch up.
 - `pendingLayers` is flushed into `layers` only when `beat === 0`, so a *new or
-  replaced* sound enters on a loop boundary. Mute, solo, and removal apply
-  immediately through `setLayer`, because they only touch an already-playing
+  replaced* sound or pattern enters on a loop boundary. Mute, solo, and removal
+  apply immediately through `setLayer`, because they only touch an already-playing
   layer's flags.
 - The visual beat comes from `reportBeat()`, a `requestAnimationFrame` loop that
   derives the beat index from `AudioContext.currentTime` against `origin`. Do not
   reintroduce timers for UI sync.
 - Grid: `BPM = 110`, `LOOP_BEATS = 8`, `BEAT_SECONDS = 60 / BPM`. The UI passes
   `--beat-ms` (= `BEAT_SECONDS * 500`) to CSS so the beat bounce matches the tempo.
-- Each layer sounds only where its pattern says: `sound.steps[beat]` is a
-  velocity, 0 meaning silence. Steps arrays are hand-written, so their length
-  must stay equal to `LOOP_BEATS`.
+- Each layer sounds only where its pattern says: `layer.override[beat]` when the
+  slot has an override, otherwise `sound.steps[beat]`. The value is a velocity,
+  0 meaning silence. Steps arrays are hand-written, so their length must stay
+  equal to `LOOP_BEATS`. The instrument keeps its authored pattern; an override
+  belongs to the slot.
 - Playback is recipe-driven: `playSound` builds an envelope and dispatches to
   `playTone` / `playNoise` from the sound's `tone` and `noise` blocks. Adding or
   retuning a sound means editing `sounds.js` only.
@@ -101,7 +104,7 @@ These are load-bearing; changes here need a browser check, not just a read:
 - Tapping still works: tap a tile to select, then tap a slot to place. Keep both
   paths working — the tap path is what works when the shelf and stage are not
   both on screen.
-- Controls inside a slot (mute/solo) opt out of dragging via
+- Controls inside a slot (mute/solo/handoff) opt out of dragging via
   `closest("button")`. A `blur` handler aborts in-flight drags.
 - Touch gestures: `.sound-tile` uses `touch-action: none` (a drag from the shelf
   must not become a browser pan); `.slot` uses `pan-y`, so the page still
@@ -122,8 +125,14 @@ These are load-bearing; changes here need a browser check, not just a read:
   unresolved — this file describes the shipped code, the product spec is
   aspirational until someone decides.
 - Slot state is one array, `slots`, of length `SLOT_COUNT`: each entry is
-  `null` or `{ sound, muted, solo }`. A sound is a recipe object from
+  `null` or an assignment
+  `{ sound, performer, muted, solo, override, takes }`, where `performer` is
+  `"conductor"` or `"model"`, `override` is an eight-velocity pattern or `null`,
+  and `takes` is the slot's take log. A sound is a recipe object from
   `sounds.js`; nothing in the UI or engine keys off an index into a second table.
+  Transitions that change an assignment (handoff, take-back) are pure functions
+  in `model-play.js`; they return a new slot list and never mutate the shared
+  instrument or a neighbouring slot.
 - `sounds.js` is the single source of truth for sounds — `SOUNDS` plus the
   grouped `CATEGORY_GROUPS`. Tile and chip classes are the category id
   (`beats`, `melody`, `effects`, `voices`), and the CSS category classes supply
@@ -131,9 +140,11 @@ These are load-bearing; changes here need a browser check, not just a read:
 - Characters are inline SVG (`CharacterArt`) driven by `characters.js`; the
   `accessory` field selects the drawn accessory. The performing animation
   restarts each beat by remounting on `key={beat}`.
-- Slot cards render three model-driven pieces: the category-tinted `.chip`, the
-  `.steps` pattern dots (velocity > 0 lit, current beat marked `.now`), and the
-  `Mute`/`Solo` toggles (`aria-pressed` + `.on`).
+- Slot cards render four model-driven pieces: the category-tinted `.chip`, the
+  `.steps` pattern dots (velocity > 0 lit, current beat marked `.now`), the
+  `Mute`/`Solo`/`Model` toggles (`aria-pressed` + `.on`), and the `.slot-performer`
+  badge naming the slot's performer (`CONDUCTOR` or `MODEL`). Handoff is the
+  `Model` toggle: it hands the assignment to the model or takes it back.
 - The app is a single page with no router and no persistence, and it has no
   server of its own. When model performers land, the browser will call the user's
   local model server directly; nothing in this repo sits between the two.
@@ -149,12 +160,13 @@ implementation unless the user asks for it explicitly.
 
 Audio and drag behaviour cannot be checked by reading code. Run the dev server
 and check in a browser: console clean, all 20 instruments audible and in sync over
-2+ minutes, assign/replace/remove/mute/solo with mouse and touch, beat
+2+ minutes, assign/replace/remove/mute/solo/handoff with mouse and touch, beat
 indicator, and layout at 375 px and 1440 px.
 
 Pointer checks that matter: drag a tile onto a slot, drag a slot's instrument off
-the stage, and tap-tile-then-tap-slot. On small viewports scroll until the stage
-and the shelf are both visible before dragging.
+the stage, tap-tile-then-tap-slot, and press a slot's `Model` toggle — it must
+change the performer without starting a drag. On small viewports scroll until the
+stage and the shelf are both visible before dragging.
 
 ## Known gaps
 

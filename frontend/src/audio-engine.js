@@ -57,9 +57,10 @@ export class AudioEngine {
     if (this.context) this.context.suspend();
   }
 
-  // A layer is `{ sound, muted, solo }` or null. Replacing a slot with a
-  // different sound waits for the loop boundary; mute/solo of the sound that is
-  // already playing applies immediately, as does removal.
+  // A layer is `{ sound, muted, solo, override }` or null. Replacing a slot with
+  // a different sound or pattern waits for the loop boundary; mute/solo of the
+  // sound that is already playing applies immediately, as does removal. A
+  // pattern change waits because a model take must enter on a loop boundary.
   setLayer(slot, layer) {
     if (!layer) {
       this.pendingLayers.delete(slot);
@@ -67,7 +68,7 @@ export class AudioEngine {
       return;
     }
     const active = this.layers.get(slot);
-    if (active && active.sound.id === layer.sound.id) {
+    if (active && active.sound.id === layer.sound.id && active.override === layer.override) {
       this.layers.set(slot, { ...active, muted: layer.muted, solo: layer.solo });
       this.pendingLayers.delete(slot);
       return;
@@ -99,7 +100,8 @@ export class AudioEngine {
       const hasSolo = active.some((layer) => layer.solo);
       for (const layer of active) {
         if (layer.muted || (hasSolo && !layer.solo)) continue;
-        const velocity = layer.sound.steps[beat];
+        const pattern = layer.override ?? layer.sound.steps;
+        const velocity = pattern[beat];
         if (velocity) this.playSound(layer.sound, this.nextBeat, velocity);
       }
       this.nextBeat += BEAT_SECONDS;
