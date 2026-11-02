@@ -38,7 +38,7 @@ Before writing code, produce an implementation plan and task list as an Artifact
 - Invent ORIGINAL characters. Do NOT copy or imitate Incredibox characters, logos, UI, or assets.
 - 7 simple, flat, chunky blob-style characters drawn in inline SVG, each with a distinct color, idle pose, and performing pose.
 - Add small summer accessories (sunglasses, sun hat, flower, snorkel, ice-cream cone, beach ball, straw hat) for personality.
-- Shipped character art follows [ADR-0001](../docs/adr/0001-character-art-grammar.md): stepped pixel silhouettes, one drawing per character.
+- Shipped character art follows [ADR-0001](../docs/adr/0001-character-art-grammar.md), which supersedes the blob wording above: stepped pixel silhouettes, one drawing per character.
 
 ## Visual style: lively summer
 Palette (use as CSS variables / Tailwind theme tokens):

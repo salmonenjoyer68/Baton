@@ -26,7 +26,9 @@ vocabulary — use its terms in docs, issues, and code comments.
 ```
 frontend/
   src/sounds.js          Sound model: categories, note table, 20 recipes + patterns
-  src/characters.js      Character model: 7 slots (name, blob colour, accessory)
+  src/characters.js      Character model: 7 slots (name, colour, silhouette,
+                         face, accessory)
+  src/character-art.jsx  Shared renderer: per-character geometry + idle/performing face
   src/model-play.js      Model seam: pure slot transitions, request building,
                          strict reply parsing, model server constants
   src/loop.js            Shared loop grid: BPM, LOOP_BEATS, BEAT_SECONDS,
