@@ -29,6 +29,8 @@ frontend/
   src/characters.js      Character model: 7 slots (name, blob colour, accessory)
   src/model-play.js      Model seam: pure slot transitions, request building,
                          strict reply parsing, model server constants
+  src/loop.js            Shared loop grid: BPM, LOOP_BEATS, BEAT_SECONDS,
+                         structural pattern comparison
   src/main.jsx           React app: state, slot rendering, drag/tap handlers
   src/audio-engine.js    AudioEngine class: Web Audio scheduler + recipe playback
   src/style.css          All styling, hand-written CSS + palette variables
@@ -76,12 +78,19 @@ These are load-bearing; changes here need a browser check, not just a read:
 - `pendingLayers` is flushed into `layers` only when `beat === 0`, so a *new or
   replaced* sound or pattern enters on a loop boundary. Mute, solo, and removal
   apply immediately through `setLayer`, because they only touch an already-playing
-  layer's flags.
+  layer's flags. `setLayer` compares patterns structurally (`samePattern`), so a
+  fresh array holding the same eight velocities is not a pattern change and does
+  not defer a mute until the boundary.
+- `activeOverride(slot)` reports the override the loop is sounding right now; a
+  layer still waiting in `pendingLayers` is not counted. The card uses it so the
+  dots and the `PLAYING` mark follow the audio, not the next intended state.
 - The visual beat comes from `reportBeat()`, a `requestAnimationFrame` loop that
   derives the beat index from `AudioContext.currentTime` against `origin`. Do not
   reintroduce timers for UI sync.
-- Grid: `BPM = 110`, `LOOP_BEATS = 8`, `BEAT_SECONDS = 60 / BPM`. The UI passes
-  `--beat-ms` (= `BEAT_SECONDS * 500`) to CSS so the beat bounce matches the tempo.
+- Grid: `BPM = 110`, `LOOP_BEATS = 8`, `BEAT_SECONDS = 60 / BPM`, all in
+  `loop.js` so the model seam can use the length without importing Web Audio.
+  The UI passes `--beat-ms` (= `BEAT_SECONDS * 500`) to CSS so the beat bounce
+  matches the tempo.
 - Each layer sounds only where its pattern says: `layer.override[beat]` when the
   slot has an override, otherwise `sound.steps[beat]`. The value is a velocity,
   0 meaning silence. Steps arrays are hand-written, so their length must stay
@@ -127,13 +136,18 @@ These are load-bearing; changes here need a browser check, not just a read:
   aspirational until someone decides.
 - Slot state is one array, `slots`, of length `SLOT_COUNT`: each entry is
   `null` or an assignment
-  `{ sound, performer, muted, solo, override, takes }`, where `performer` is
-  `"conductor"` or `"model"`, `override` is an eight-velocity pattern or `null`,
-  and `takes` is the slot's take log. A sound is a recipe object from
-  `sounds.js`; nothing in the UI or engine keys off an index into a second table.
-  Transitions that change an assignment (handoff, take-back) and the one that
-  installs a take (override) are pure functions in `model-play.js`; they return
-  a new slot list and never mutate the shared instrument or a neighbouring slot.
+  `{ sound, performer, muted, solo, override, takes, take }`, where `performer`
+  is `"conductor"` or `"model"`, `override` is an eight-velocity pattern or
+  `null`, `takes` is the slot's take log, and `take` is the slot's transient
+  take status (`null`, `pending`, `timeout`, `unreachable`, `server`,
+  `rejected`, `landed` or `rated`). A sound is a recipe object from `sounds.js`;
+  nothing in the UI or engine keys off an index into a second table. Every slot
+  change goes through `commitSlots` in `main.jsx`, which derives from the latest
+  list and tells the engine about exactly the slots that changed. Transitions
+  that change an assignment (handoff, take-back, placing an instrument) and the
+  ones that drive a take (begin, settle, install, rate) are pure functions in
+  `model-play.js`; they return a new slot list and never mutate the shared
+  instrument or a neighbouring slot.
 - `sounds.js` is the single source of truth for sounds — `SOUNDS` plus the
   grouped `CATEGORY_GROUPS`. Tile and chip classes are the category id
   (`beats`, `melody`, `effects`, `voices`), and the CSS category classes supply
@@ -142,16 +156,18 @@ These are load-bearing; changes here need a browser check, not just a read:
   `accessory` field selects the drawn accessory. The performing animation
   restarts each beat by remounting on `key={beat}`.
 - Slot cards render the category-tinted `.chip`, the `.steps` pattern dots (the
-  slot's override when it has one, otherwise the authored pattern; velocity > 0
-  lit, current beat marked `.now`), the `Mute`/`Solo`/`Model` toggles
-  (`aria-pressed` + `.on`), and the `.slot-performer` badge naming the slot's
-  performer (`CONDUCTOR` or `MODEL`). Handoff is the `Model` toggle: it hands
-  the assignment to the model or takes it back. A model-played card also shows
-  a `TAKE` button; one press sends one request. Once a take lands, the card
-  shows `ACCEPT`/`REJECT` until it is rated, then the `.take-log` list in
-  oldest-first order, each entry carrying its eight velocities, verdict and a
-  `PLAYING` mark on the newest (the current override). `TAKE` stays disabled
-  while the newest take is unrated.
+  pattern the loop is actually sounding while it runs — `activeOverride` on
+  `AudioEngine` — otherwise the slot's override when it has one, otherwise
+  the authored pattern; velocity > 0 lit, current beat marked `.now`), the
+  `Mute`/`Solo`/`Model` toggles (`aria-pressed` + `.on`), and the
+  `.slot-performer` badge naming the slot's performer (`CONDUCTOR` or `MODEL`).
+  Handoff is the `Model` toggle: it hands the assignment to the model or takes
+  it back. A model-played card also shows a `TAKE` button; one press sends one
+  request. Once a take lands, the card shows `ACCEPT`/`REJECT` until it is
+  rated, then the `.take-log` list in oldest-first order, each entry carrying
+  its eight velocities, verdict and a `PLAYING` mark on the newest once it is
+  audible (`PENDING` until the loop boundary enters it, and while paused).
+  `TAKE` stays disabled while the newest take is unrated.
 - The app is a single page with no router and no persistence. The browser calls
   the user's local model server directly; nothing in this repo sits between the
   two.
@@ -172,35 +188,48 @@ configuration — `README.md` documents `OLLAMA_ORIGINS` for localhost:5173.
 
 The module's pieces are deliberately pure and unit-tested at that seam:
 
-- `buildRequest(instrument, takeLog)` returns the Ollama request body. It
-  carries only the handed instrument — name, category, current eight
-  velocities — and the slot's take log, oldest first, each take's pattern with
-  its verdict (`accepted`, `rejected` or `unrated`). An empty log says this is
-  the first take. It asks for one JSON object with a `pattern` array and no
-  prose.
+- `buildRequest(instrument, takeLog, pattern)` returns the Ollama request body.
+  It carries only the handed instrument — name, category, the live pattern the
+  slot is sounding (`override ?? authored`) — and the slot's take log, oldest
+  first, each take's pattern with its verdict (`accepted`, `rejected` or
+  `unrated`). An empty log says this is the first take. It asks for one JSON
+  object with a `pattern` array and no prose.
 - `parseTake(text)` returns `{ ok: true, pattern }` or `{ ok: false, reason }`.
   Strict: JSON, an object with a `pattern` array of exactly `LOOP_BEATS`
   entries, every entry a finite number in 0–1. Reasons are named in
   `TAKE_REASONS` (`not-json`, `no-pattern`, `wrong-length`, `non-numeric`,
   `out-of-range`, `no-reply`). Never clamp or pad.
-- `applyTake(slots, index, pattern)` installs the override on that slot only
-  and appends `{ pattern, rating: null }` to its take log. The instrument's
-  authored pattern and every other slot are untouched.
+- `placeInstrument(slots, index, instrument)` places an instrument. Re-dropping
+  the instrument the slot already holds changes nothing, so the performer,
+  mixing flags, override and take log survive; a different instrument starts a
+  fresh conductor assignment.
+- `applyTake(slots, index, pattern)` installs the override on that slot only,
+  marks the slot's take `landed`, and appends `{ pattern, rating: null }` to its
+  take log. The instrument's authored pattern and every other slot are
+  untouched.
 - `rateTake(slots, index, rating)` records `accepted` or `rejected` on the
-  newest unrated take. With no unrated take it changes nothing. `handoff` keeps
-  the log, while `takeBack`, replacement and removal clear it.
+  newest unrated take and marks the slot's take `rated`. With no unrated take it
+  changes nothing. `handoff` keeps the log, while `takeBack`, replacement and
+  removal clear it.
 - `hasUnratedTake(slot)` is true until the newest take has a verdict; the card
   disables `TAKE` and `main.jsx` refuses to request while it is true.
-- `requestTake(instrument, takeLog, fetchImpl)` posts to
-  `${MODEL_SERVER}/api/generate` and distinguishes
-  `{ ok: false, kind: "unreachable" }` from `{ ok: false, kind: "unusable",
-  reason }`. The UI keeps "in flight" as a third state, so the three failures
-  look different on the card.
+- `beginTake(slots, index, token)` claims a slot for one in-flight request,
+  storing the token on the slot's `take` status. `settleTake(slots, index,
+  token, result)` applies the reply only while that token is still on the slot,
+  so a handoff, move, replacement or removal drops a late reply. Two takes
+  landing from one starting list therefore both survive.
+- `requestTake(instrument, takeLog, { pattern, fetchImpl, timeoutMs })` posts to
+  `${MODEL_SERVER}/api/generate` with a deadline (`TAKE_TIMEOUT_MS`), aborting
+  the transport at it. It distinguishes `{ ok: false, kind: "unreachable" }`
+  (network failure), `{ ok: false, kind: "timeout" }`,
+  `{ ok: false, kind: "server", status }` (the server answered with an error
+  status) and `{ ok: false, kind: "unusable", reason }`. The UI keeps "in
+  flight" as another state, so the failures look different on the card.
 
-A landed take goes through `engine.setLayer`, so the existing pending/current
-split enters it at the next `beat === 0`. Do not add a timer path. A reply that
-arrives after the slot has been reassigned, removed, or handed back must be
-dropped using the take token in `main.jsx`.
+A landed take goes through `commitSlots` → `engine.setLayer`, so the existing
+pending/current split enters it at the next `beat === 0`. Do not add a timer
+path. The scheduled pattern is compared structurally, so mute and solo still
+apply immediately while a pattern change waits for the boundary.
 
 ## Scope discipline
 
