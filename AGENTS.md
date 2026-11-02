@@ -4,17 +4,21 @@ Guidance for agents working in this repo.
 
 ## What this is
 
-Baton is a browser music-mixing game in the style of Incredibox: the player
-assigns procedural sounds to 7 animated characters, each looping on a shared
-8-beat grid at 110 BPM. The only implemented code is the frontend
+Baton is a browser music-mixing game in the style of Incredibox: the conductor
+hands instruments to 7 characters, each performing a pattern on a shared 8-beat
+loop at 110 BPM. The only implemented code is the frontend
 (`frontend/src/`). A `backend/` tree exists but is entirely docstring stubs.
+
+A **performer** is whoever plays a slot: a character the conductor assigned an
+instrument to, or a model handed one. `CONTEXT.md` holds the rest of the
+vocabulary — use its terms in docs, issues, and code comments.
 
 ## Source of truth
 
-- `frontend/frontend.md` — the locked product spec: stack, 20 sounds, 7
+- `frontend/frontend.md` — the locked product spec: stack, 20 instruments, 7
   characters, audio timing rules, palette, responsive targets, and an explicit
   "Do NOT build" list. Read it before adding anything.
-- `docs/architecture.md` — describes a conductor/WebSocket backend that does
+- `docs/architecture.md` — describes a coordinator/WebSocket backend that does
   **not** exist yet. Treat it as intent, not as a description of current code.
 
 ## Layout
@@ -85,10 +89,10 @@ These are load-bearing; changes here need a browser check, not just a read:
   events are deliberately absent because touch never fires them.
 - Hit testing is `document.elementFromPoint(...).closest("[data-slot]")`; every
   slot carries `data-slot={index}`.
-- Dropping a sound tile on a slot assigns/replaces; dragging a slot's sound to
-  another slot moves it; releasing a slot's sound outside every slot removes it.
+- Dropping an instrument tile on a slot assigns/replaces; dragging a slot's
+  instrument to another slot moves it; releasing it outside every slot removes it.
 - Tapping still works: tap a tile to select, then tap a slot to place. Keep both
-  paths working — the tap path is what works when the palette and stage are not
+  paths working — the tap path is what works when the shelf and stage are not
   both on screen.
 - Controls inside a slot (mute/solo) opt out of dragging via
   `closest("button")`. A `blur` handler aborts in-flight drags.
@@ -123,7 +127,9 @@ These are load-bearing; changes here need a browser check, not just a read:
 - Slot cards render three model-driven pieces: the category-tinted `.chip`, the
   `.steps` pattern dots (velocity > 0 lit, current beat marked `.now`), and the
   `Mute`/`Solo` toggles (`aria-pressed` + `.on`).
-- The app is a single page, no router, no backend calls, no persistence.
+- The app is a single page with no router and no persistence, and it has no
+  server of its own. When model performers land, the browser will call the user's
+  local model server directly; nothing in this repo sits between the two.
 
 ## Scope discipline
 
@@ -135,13 +141,13 @@ implementation unless the user asks for it explicitly.
 ## Verification
 
 Audio and drag behaviour cannot be checked by reading code. Run the dev server
-and check in a browser: console clean, all 20 sounds audible and in sync over
+and check in a browser: console clean, all 20 instruments audible and in sync over
 2+ minutes, assign/replace/remove/mute/solo with mouse and touch, beat
 indicator, and layout at 375 px and 1440 px.
 
-Pointer checks that matter: drag a tile onto a slot, drag a slot's sound off the
-stage, and tap-tile-then-tap-slot. On small viewports scroll until the stage and
-the sound shelf are both visible before dragging.
+Pointer checks that matter: drag a tile onto a slot, drag a slot's instrument off
+the stage, and tap-tile-then-tap-slot. On small viewports scroll until the stage
+and the shelf are both visible before dragging.
 
 ## Known gaps
 
@@ -151,3 +157,17 @@ the sound shelf are both visible before dragging.
   at load time (the note table is the only validated data).
 - `frontend/js/*` and `frontend/css/style.css` are still dead stubs from the
   first commit.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use their default label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.

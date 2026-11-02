@@ -1,1 +1,0 @@
-"""Gemini-backed musician implementation."""

@@ -1,1 +1,0 @@
-"""Groq-backed musician implementation."""

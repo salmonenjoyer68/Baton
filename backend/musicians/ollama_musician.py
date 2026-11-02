@@ -1,1 +1,0 @@
-"""Ollama-backed musician implementation."""
