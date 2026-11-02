@@ -92,15 +92,24 @@ These are load-bearing; changes here need a browser check, not just a read:
   both on screen.
 - Controls inside a slot (mute/solo) opt out of dragging via
   `closest("button")`. A `blur` handler aborts in-flight drags.
+- Touch gestures: `.sound-tile` uses `touch-action: none` (a drag from the shelf
+  must not become a browser pan); `.slot` uses `pan-y`, so the page still
+  scrolls over the stage while horizontal slot-to-slot drags reach the pointer
+  handlers. The stage is a wrapping grid at every width — do not reintroduce
+  horizontal stage scrolling.
 
 ## Frontend conventions
 
 - Plain CSS classes in `style.css`; Tailwind is wired (PostCSS + preflight) but
   the JSX uses no utility classes. Preflight means headings/buttons get no UA
   styling, so set `font-size`/`font-weight` explicitly when adding elements.
-- Colours come from the CSS variables in `:root` (`--coral`, `--turquoise`,
-  `--pink`, `--mango`, `--sand`, `--navy`, …). Use them instead of new hex
-  literals; the spec requires palette consistency.
+- Colours come from the eight CSS variables in `:root` (`--bg`, `--surface`,
+  `--text`, `--muted`, `--accent`, `--accent-2`, `--success`, `--danger`). Use
+  them (or a `color-mix` of them) instead of new hex literals: no hex value
+  exists outside that block. `frontend/frontend.md` still specifies the older
+  Coral/Turquoise/Sand summer palette and forbids dark mode; that conflict is
+  unresolved — this file describes the shipped code, the product spec is
+  aspirational until someone decides.
 - Slot state is one array, `slots`, of length `SLOT_COUNT`: each entry is
   `null` or `{ sound, muted, solo }`. A sound is a recipe object from
   `sounds.js`; nothing in the UI or engine keys off an index into a second table.

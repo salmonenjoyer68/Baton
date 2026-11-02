@@ -122,6 +122,8 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [dragView, setDragView] = useState(null);
   const [slots, setSlots] = useState(() => Array(SLOT_COUNT).fill(null));
+  // Overlay is modal until audio starts: everything behind it is inert.
+  const inertWhenStopped = started ? undefined : "";
 
   useEffect(() => {
     engine.current = new AudioEngine(setBeat);
@@ -249,7 +251,7 @@ function App() {
         </div>
       </div>
     </div>}
-    <header className="topbar" inert={!started ? "" : undefined}>
+    <header className="topbar" inert={inertWhenStopped}>
       <a className="brand" href="#top" aria-label="Baton home">
         <PixelBaton />
         <span className="brand-name">BATON</span>
@@ -266,7 +268,7 @@ function App() {
         </button>
       </div>
     </header>
-    <main id="top" inert={!started ? "" : undefined}>
+    <main id="top" inert={inertWhenStopped}>
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">7 CHARACTERS / 20 SOUNDS / 1 LOOP</p>
@@ -350,7 +352,7 @@ function App() {
         </div>
         <p className="section-hint">Tap a sound, then tap a character. Or drag a tile straight onto the stage. Replace a sound by dropping another on top of it.</p>
         {CATEGORY_GROUPS.map((category) => <div className="category" key={category.id}>
-          <h3 className={`category-title ${category.color}`}><PixelIcon kind={category.id} />{category.label}<em>{category.sounds.length}/5</em></h3>
+          <h3 className={`category-title ${category.id}`}><PixelIcon kind={category.id} />{category.label}<em>{category.sounds.length}/5</em></h3>
           <div className="sound-grid">{category.sounds.map((sound) => <button
             type="button"
             className={`sound-tile pixel ${sound.category} ${selected?.id === sound.id ? "selected" : ""}`}
@@ -399,7 +401,7 @@ function App() {
         </ol>
       </section>
     </main>
-    <footer className="footer" inert={!started ? "" : undefined}>
+    <footer className="footer" inert={inertWhenStopped}>
       <strong>BATON</strong>
       <p>Seven friends, twenty procedural sounds, zero audio files. Built with Web Audio and a shared eight-beat clock.</p>
       <p className="footer-meta">{BPM} BPM / {LOOP_BEATS}-BEAT LOOP / C MINOR PENTATONIC</p>
@@ -408,6 +410,4 @@ function App() {
   </div>;
 }
 
-const root = globalThis.__batonRoot ?? createRoot(document.getElementById("app"));
-globalThis.__batonRoot = root;
-root.render(<App />);
+createRoot(document.getElementById("app")).render(<App />);

@@ -27,16 +27,16 @@ export const NOTE_HZ = {
 };
 
 export const CATEGORIES = [
-  { id: "beats", label: "Beats", color: "coral" },
-  { id: "melody", label: "Bass + Melody", color: "turquoise" },
-  { id: "effects", label: "Effects", color: "mango" },
-  { id: "voices", label: "Voices", color: "pink" }
+  { id: "beats", label: "Beats" },
+  { id: "melody", label: "Bass + Melody" },
+  { id: "effects", label: "Effects" },
+  { id: "voices", label: "Voices" }
 ];
 
 // `steps` holds one velocity (0 = silent) per beat of the loop.
 // `tone` and `noise` are optional; a sound may use either or both.
 export const SOUNDS = [
-  // Beats — coral
+  // Beats
   {
     id: "beats-kick",
     name: "Kick bloom",
@@ -78,7 +78,7 @@ export const SOUNDS = [
     noise: { filter: "highpass", frequency: 4200, q: 0.9, duration: 0.1 }
   },
 
-  // Bass + Melody — turquoise
+  // Bass + Melody
   {
     id: "melody-bass",
     name: "Moon bass",
@@ -120,7 +120,7 @@ export const SOUNDS = [
     tone: { wave: "sine", note: "Bb2", glideTo: "C2", glide: 0.3, duration: 0.45 }
   },
 
-  // Effects — mango
+  // Effects
   {
     id: "effects-riser",
     name: "Sunrise sweep",
@@ -162,7 +162,7 @@ export const SOUNDS = [
     noise: { filter: "bandpass", frequency: 1800, q: 3, glideTo: 5200, glide: 0.35, duration: 0.5 }
   },
 
-  // Voices — pink
+  // Voices
   {
     id: "voices-ooh",
     name: "Ooh breeze",

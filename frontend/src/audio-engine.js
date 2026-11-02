@@ -75,10 +75,6 @@ export class AudioEngine {
     this.pendingLayers.set(slot, layer);
   }
 
-  removeLayer(slot) {
-    this.setLayer(slot, null);
-  }
-
   schedule() {
     if (!this.context || !this.running) return;
     const now = this.context.currentTime;
