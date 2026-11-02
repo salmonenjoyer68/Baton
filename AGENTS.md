@@ -27,7 +27,8 @@ vocabulary — use its terms in docs, issues, and code comments.
 frontend/
   src/sounds.js          Sound model: categories, note table, 20 recipes + patterns
   src/characters.js      Character model: 7 slots (name, blob colour, accessory)
-  src/model-play.js      Pure slot transitions: handoff and take-back
+  src/model-play.js      Model seam: pure slot transitions, request building,
+                         strict reply parsing, model server constants
   src/main.jsx           React app: state, slot rendering, drag/tap handlers
   src/audio-engine.js    AudioEngine class: Web Audio scheduler + recipe playback
   src/style.css          All styling, hand-written CSS + palette variables
@@ -130,9 +131,9 @@ These are load-bearing; changes here need a browser check, not just a read:
   `"conductor"` or `"model"`, `override` is an eight-velocity pattern or `null`,
   and `takes` is the slot's take log. A sound is a recipe object from
   `sounds.js`; nothing in the UI or engine keys off an index into a second table.
-  Transitions that change an assignment (handoff, take-back) are pure functions
-  in `model-play.js`; they return a new slot list and never mutate the shared
-  instrument or a neighbouring slot.
+  Transitions that change an assignment (handoff, take-back) and the one that
+  installs a take (override) are pure functions in `model-play.js`; they return
+  a new slot list and never mutate the shared instrument or a neighbouring slot.
 - `sounds.js` is the single source of truth for sounds — `SOUNDS` plus the
   grouped `CATEGORY_GROUPS`. Tile and chip classes are the category id
   (`beats`, `melody`, `effects`, `voices`), and the CSS category classes supply
@@ -141,13 +142,51 @@ These are load-bearing; changes here need a browser check, not just a read:
   `accessory` field selects the drawn accessory. The performing animation
   restarts each beat by remounting on `key={beat}`.
 - Slot cards render four model-driven pieces: the category-tinted `.chip`, the
-  `.steps` pattern dots (velocity > 0 lit, current beat marked `.now`), the
+  `.steps` pattern dots (the slot's override when it has one, otherwise the
+  authored pattern; velocity > 0 lit, current beat marked `.now`), the
   `Mute`/`Solo`/`Model` toggles (`aria-pressed` + `.on`), and the `.slot-performer`
   badge naming the slot's performer (`CONDUCTOR` or `MODEL`). Handoff is the
-  `Model` toggle: it hands the assignment to the model or takes it back.
-- The app is a single page with no router and no persistence, and it has no
-  server of its own. When model performers land, the browser will call the user's
-  local model server directly; nothing in this repo sits between the two.
+  `Model` toggle: it hands the assignment to the model or takes it back. A
+  model-played card also shows a `TAKE` button; one press sends one request.
+- The app is a single page with no router and no persistence. The browser calls
+  the user's local model server directly; nothing in this repo sits between the
+  two.
+
+## Model seam
+
+`frontend/src/model-play.js` is the only module that knows the model. It holds
+the two swap points as constants:
+
+```js
+export const MODEL_SERVER = "http://127.0.0.1:11434";
+export const MODEL_NAME = "qwen2.5:3b";
+```
+
+Editing those two lines swaps models; there is no settings surface and nothing
+is persisted. The server's origin allow-list is a machine setting, not repo
+configuration — `README.md` documents `OLLAMA_ORIGINS` for localhost:5173.
+
+The module's pieces are deliberately pure and unit-tested at that seam:
+
+- `buildRequest(instrument)` returns the Ollama request body. It carries only
+  the handed instrument — name, category, current eight velocities — and asks
+  for one JSON object with a `pattern` array and no prose.
+- `parseTake(text)` returns `{ ok: true, pattern }` or `{ ok: false, reason }`.
+  Strict: JSON, an object with a `pattern` array of exactly `LOOP_BEATS`
+  entries, every entry a finite number in 0–1. Reasons are named in
+  `TAKE_REASONS` (`not-json`, `no-pattern`, `wrong-length`, `non-numeric`,
+  `out-of-range`, `no-reply`). Never clamp or pad.
+- `applyTake(slots, index, pattern)` installs the override on that slot only.
+  The instrument's authored pattern and every other slot are untouched.
+- `requestTake(instrument, fetchImpl)` posts to `${MODEL_SERVER}/api/generate`
+  and distinguishes `{ ok: false, kind: "unreachable" }` from
+  `{ ok: false, kind: "unusable", reason }`. The UI keeps "in flight" as a third
+  state, so the three failures look different on the card.
+
+A landed take goes through `engine.setLayer`, so the existing pending/current
+split enters it at the next `beat === 0`. Do not add a timer path. A reply that
+arrives after the slot has been reassigned, removed, or handed back must be
+dropped using the take token in `main.jsx`.
 
 ## Scope discipline
 

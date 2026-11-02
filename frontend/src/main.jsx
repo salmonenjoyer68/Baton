@@ -3,11 +3,31 @@ import { createRoot } from "react-dom/client";
 import { AudioEngine, BPM, BEAT_SECONDS, LOOP_BEATS } from "./audio-engine";
 import { CATEGORY_GROUPS } from "./sounds";
 import { CHARACTERS, SLOT_COUNT } from "./characters";
-import { handoff, takeBack } from "./model-play";
+import { applyTake, handoff, requestTake, takeBack, TAKE_REASONS } from "./model-play";
 import "./style.css";
 
 const DRAG_THRESHOLD = 6;
 const BEAT_ANIMATION_MS = Math.round(BEAT_SECONDS * 500);
+
+// Rejections carry a stable reason name; the slot card shows this copy.
+const TAKE_REASON_TEXT = {
+  [TAKE_REASONS.NOT_JSON]: "REPLY WAS NOT JSON",
+  [TAKE_REASONS.NO_PATTERN]: "REPLY HAD NO PATTERN ARRAY",
+  [TAKE_REASONS.WRONG_LENGTH]: "PATTERN WAS NOT EIGHT BEATS",
+  [TAKE_REASONS.NON_NUMERIC]: "A VELOCITY WAS NOT A NUMBER",
+  [TAKE_REASONS.OUT_OF_RANGE]: "A VELOCITY WAS OUTSIDE 0-1",
+  [TAKE_REASONS.NO_REPLY]: "THE SERVER SENT NO REPLY"
+};
+
+// The three failure-ish states must be readable as different things: a request
+// still running, a server that never answered, and a reply that broke the
+// contract each get their own line and colour on the card.
+function takeStatusText(takeState) {
+  if (takeState.status === "pending") return "MODEL IS TAKING...";
+  if (takeState.status === "unreachable") return "MODEL UNREACHABLE // START OLLAMA";
+  if (takeState.status === "rejected") return `TAKE REJECTED // ${TAKE_REASON_TEXT[takeState.reason] ?? "UNUSABLE REPLY"}`;
+  return "TAKE LANDED ON THE NEXT LOOP";
+}
 
 // 8-bit glyphs drawn as rectangles: no external sprites, no font icons.
 const ICON_RECTS = {
@@ -106,8 +126,8 @@ function CharacterArt({ color, accessory, active }) {
 }
 
 // The layer's 8-beat pattern, with the beat that is sounding right now marked.
-function StepDots({ sound, beat, playing }) {
-  return <span className="steps" aria-hidden="true">{sound.steps.map((velocity, index) =>
+function StepDots({ pattern, beat, playing }) {
+  return <span className="steps" aria-hidden="true">{pattern.map((velocity, index) =>
     <i key={index} className={`${velocity ? "on" : ""}${playing && index === beat ? " now" : ""}`} />
   )}</span>;
 }
@@ -123,6 +143,14 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [dragView, setDragView] = useState(null);
   const [slots, setSlots] = useState(() => Array(SLOT_COUNT).fill(null));
+  // Per-slot take status: idle (no entry), pending, unreachable, rejected or
+  // landed. Kept beside the slots because a rejected attempt changes nothing
+  // about the assignment itself.
+  const [takeStates, setTakeStates] = useState({});
+  const slotsRef = useRef(slots);
+  const takeTokens = useRef({});
+  const pendingTakes = useRef({});
+  slotsRef.current = slots;
   // Overlay is modal until audio starts: everything behind it is inert.
   const inertWhenStopped = started ? undefined : "";
 
@@ -140,6 +168,17 @@ function App() {
 
   const activeCount = slots.filter(Boolean).length;
 
+  // Drop any take status for a slot, and invalidate a reply still in flight.
+  const clearTake = (slot) => {
+    takeTokens.current[slot] = (takeTokens.current[slot] ?? 0) + 1;
+    pendingTakes.current[slot] = false;
+    setTakeStates((current) => {
+      if (!(slot in current)) return current;
+      const next = { ...current };
+      delete next[slot];
+      return next;
+    });
+  };
   const setSlot = (slot, layer) => {
     setSlots((current) => { const next = [...current]; next[slot] = layer; return next; });
     engine.current?.setLayer(slot, layer);
@@ -148,6 +187,7 @@ function App() {
     const previous = slots[slot];
     // A replacement is a fresh assignment: the conductor owns it again and no
     // take or override survives the old instrument.
+    clearTake(slot);
     setSlot(slot, {
       sound,
       performer: "conductor",
@@ -158,10 +198,15 @@ function App() {
     });
     setSelected(null);
   };
-  const remove = (slot) => setSlot(slot, null);
+  const remove = (slot) => {
+    clearTake(slot);
+    setSlot(slot, null);
+  };
   const move = (from, to) => {
     const layer = slots[from];
     if (!layer) return;
+    clearTake(from);
+    clearTake(to);
     setSlot(to, layer);
     setSlot(from, null);
     setSelected(null);
@@ -176,9 +221,36 @@ function App() {
   const togglePerformer = (slot) => {
     const layer = slots[slot];
     if (!layer) return;
+    clearTake(slot);
     const next = layer.performer === "model" ? takeBack(slots, slot) : handoff(slots, slot);
     setSlots(next);
     engine.current?.setLayer(slot, next[slot]);
+  };
+  // One press, one request. The reply either becomes the slot's override (the
+  // engine enters it on the next loop boundary) or names why it was rejected.
+  const takeFromModel = async (slot) => {
+    const layer = slotsRef.current[slot];
+    if (!layer || layer.performer !== "model" || pendingTakes.current[slot]) return;
+    const token = (takeTokens.current[slot] ?? 0) + 1;
+    takeTokens.current[slot] = token;
+    pendingTakes.current[slot] = true;
+    setTakeStates((current) => ({ ...current, [slot]: { status: "pending" } }));
+    const result = await requestTake(layer.sound);
+    // The slot was reassigned, removed or handed back while the model worked.
+    if (takeTokens.current[slot] !== token) return;
+    pendingTakes.current[slot] = false;
+    const latest = slotsRef.current[slot];
+    if (!latest || latest.sound.id !== layer.sound.id || latest.performer !== "model") return;
+    if (result.ok) {
+      const next = applyTake(slotsRef.current, slot, result.pattern);
+      setSlots(next);
+      engine.current?.setLayer(slot, next[slot]);
+      setTakeStates((current) => ({ ...current, [slot]: { status: "landed" } }));
+    } else if (result.kind === "unreachable") {
+      setTakeStates((current) => ({ ...current, [slot]: { status: "unreachable" } }));
+    } else {
+      setTakeStates((current) => ({ ...current, [slot]: { status: "rejected", reason: result.reason } }));
+    }
   };
   const togglePlay = async () => {
     if (starting || !engine.current) return;
@@ -313,6 +385,7 @@ function App() {
         <div className="stage" style={{ "--beat-ms": `${BEAT_ANIMATION_MS}ms` }}>{slots.map((layer, index) => {
           const sound = layer ? layer.sound : null;
           const character = CHARACTERS[index];
+          const takeState = takeStates[index];
           return <div
             className={`slot pixel ${sound ? `occupied ${sound.category}` : "empty"} ${dragView?.over === index ? "drop-target" : ""}`}
             key={character.id}
@@ -337,12 +410,14 @@ function App() {
             {sound
               ? <>
                   <span className={`chip ${sound.category}`}>{sound.name}</span>
-                  <StepDots sound={sound} beat={beat} playing={playing} />
+                  <StepDots pattern={layer.override ?? sound.steps} beat={beat} playing={playing} />
                   <div className="slot-toggles">
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.muted ? "on" : ""}`} aria-pressed={layer.muted} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "muted"); }}><span>MUTE</span></button>
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.solo ? "on" : ""}`} aria-pressed={layer.solo} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "solo"); }}><span>SOLO</span></button>
                     <button type="button" className={`toggle-btn handoff pixel pixel-btn ${layer.performer === "model" ? "on" : ""}`} aria-pressed={layer.performer === "model"} aria-label={layer.performer === "model" ? `Take ${sound.name} back from the model` : `Hand ${sound.name} to the model`} onClick={(event) => { event.stopPropagation(); togglePerformer(index); }}><span>MODEL</span></button>
+                    {layer.performer === "model" && <button type="button" className="toggle-btn take pixel pixel-btn" aria-label={`Ask the model for a take on ${sound.name}`} disabled={takeState?.status === "pending"} onClick={(event) => { event.stopPropagation(); takeFromModel(index); }}><span>{takeState?.status === "pending" ? "TAKING" : "TAKE"}</span></button>}
                   </div>
+                  {layer.performer === "model" && takeState && <p className={`take-status ${takeState.status}`} role="status">{takeStatusText(takeState)}</p>}
                 </>
               : <span className="empty-label">{selected ? "TAP TO PLACE" : "NO SOUND"}</span>}
           </div>;
