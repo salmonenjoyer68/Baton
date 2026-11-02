@@ -10,9 +10,11 @@ is a single static page.
 
 > **Baton is meant to be played by AI musicians, not by hand.** The end goal is a
 > crew of autonomous agents that each decide what to play, bar by bar, while the
-> conductor keeps them in time and in key. That part is **not built yet** — today
-> the browser game is the whole product and you place every sound yourself. See
-> [Status](#status) for exactly what exists.
+> conductor keeps them in time and in key. The first musical agent has landed as
+> a standalone CLI DJ in [`music-agent/`](music-agent/README.md): you ask for
+> music in plain English and a local Ollama model searches, queues, and plays it.
+> It is not wired to the browser game yet — there you still place every sound
+> yourself. See [Status](#status) for exactly what exists.
 
 ![Baton 8-bit stage and sound shelf](docs/preview.webp)
 
@@ -38,6 +40,10 @@ is a single static page.
 - **Explicit state.** Mute and solo expose `aria-pressed`; the beat indicator and
   each layer's pattern dots are driven by the audio clock. Motion is stepped and
   disabled under `prefers-reduced-motion`.
+- **First musical agent.** `music-agent/` is a working command-line DJ: a small
+  local Ollama model calls eight tools — `search_music`, `play`, `queue_add`,
+  `pause`, `resume`, `skip`, `set_volume`, `now_playing` — over yt-dlp search
+  and mpv playback. No cloud API, no API key, no audio written to disk.
 
 ## Getting started
 
@@ -56,11 +62,37 @@ npm run build    # outputs to ../dist
 npm run preview
 ```
 
-No environment variables, API keys, or backend services are needed to play.
+No environment variables, API keys, or backend services are needed to play the
+browser game.
 
-When the musician adapters land, copy `.env.example` to `.env` and put provider
-keys there. `.env` and `.env.*` are gitignored (with `.env.example` explicitly
-kept), so real keys never enter the repository.
+### First musical agent (CLI)
+
+The agent lives in `music-agent/` and is independent of the browser game. It
+needs Python 3.10+, a running [Ollama](https://ollama.com) server with a small
+tool-calling model, and [mpv](https://mpv.io) on `PATH`:
+
+From the repository root:
+
+```sh
+sudo apt install mpv                 # macOS: brew install mpv, Windows: winget install mpv
+ollama serve                         # in another terminal
+ollama pull qwen2.5:3b
+
+python -m venv .venv                 # skip if .venv already exists
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r music-agent/requirements.txt
+cd music-agent
+python agent.py
+```
+
+Then type requests such as `play something chill for coding`, `skip this`,
+`queue some Beatles`, `turn it down to 30`, or `what's playing?`. The agent reads
+`OLLAMA_MODEL` and `OLLAMA_HOST` from the environment, defaulting to
+`qwen2.5:3b` and `http://127.0.0.1:11434`; `llama3.2:3b` and `qwen3:4b` work by
+changing only `OLLAMA_MODEL`. Put overrides in a repo-root `.env` (copy
+`.env.example`); `.env` and `.env.*` are gitignored, so real keys and local
+settings never enter the repository. Full details, including troubleshooting,
+are in [`music-agent/README.md`](music-agent/README.md).
 
 ## How to play
 
@@ -128,6 +160,11 @@ frontend/
   vite.config.js        Vite config (this directory is the root)
   tailwind.config.js    Tailwind content globs
   postcss.config.js     Tailwind pipeline
+music-agent/            Working CLI DJ: local Ollama model + yt-dlp + mpv
+  agent.py              Chat loop, tool rounds, model/server checks
+  src/tools.py          Eight music and playback tools, JSON schemas
+  src/player.py         mpv JSON IPC wrapper: play, queue, pause, volume
+  README.md             Agent install, run, and troubleshooting
 docs/
   architecture.md       Planned conductor service (not implemented)
   preview.webp          Screenshot for this README
@@ -144,15 +181,33 @@ from Google Fonts; every other visual is CSS or inline SVG drawn in code.
 Tailwind's preflight is active, but the components style themselves with
 hand-written CSS and the eight palette tokens in `src/style.css`.
 
+The CLI agent is plain Python 3.10+ using the `ollama` and `yt-dlp` packages;
+playback goes through mpv's JSON IPC socket, so there is no Python audio
+library and no cloud dependency.
+
 ## Status
 
-The browser game is complete and playable by hand: twenty sounds, seven
+Two things work today, independently.
+
+**The browser game** is complete and playable by hand: twenty sounds, seven
 characters, pattern-based layers, mute/solo, pointer drag on mouse and touch,
 keyboard placement and removal, and a responsive dark 8-bit interface.
 
-**The AI musicians have not been added yet.** Nothing in the repo decides what
-to play — there is no agent, no prompt, no model call, and the frontend opens no
-WebSocket. What exists for that future is scaffolding only:
+**The first musical agent** is a working command-line DJ in `music-agent/`. A
+local Ollama model reads plain-English requests, calls tools, and controls mpv
+through yt-dlp streams. It is not connected to the browser game and does not
+produce Baton notes — it is a separate, self-contained agent.
+
+| Piece | State |
+| --- | --- |
+| `music-agent/agent.py` | Working — Ollama chat loop, model/server checks, up to 6 tool rounds, last 10 messages, `num_ctx` 4096 |
+| `music-agent/src/tools.py` | Working — `search_music`, `play`, `queue_add`, `pause`, `resume`, `skip`, `set_volume`, `now_playing`; failures return `{"ok": false, "error": ...}` |
+| `music-agent/src/player.py` | Working — mpv JSON IPC wrapper with play queue and volume; no extra Python dependency |
+| `music-agent/README.md` | Install, run, and troubleshooting for the CLI agent |
+
+The conductor-side musician system is still scaffolding. Nothing in
+`backend/` runs, the frontend opens no WebSocket, and no model generates a
+musical bar:
 
 | Piece | State |
 | --- | --- |
@@ -161,19 +216,20 @@ WebSocket. What exists for that future is scaffolding only:
 | `backend/musicians/{gemini,groq,ollama,rule_based}_musician.py` | Docstrings only |
 | `backend/schemas/notes.py` | Docstrings only |
 | `docs/architecture.md` | One-paragraph intent: "The conductor coordinates shared musical state and schedules musicians in parallel. Validated bars are delivered to the frontend over WebSocket." |
-| `.env.example` | Reserves `GROQ_API_KEY` and `GEMINI_API_KEY` for the planned model-backed musicians |
+| `.env.example` | `OLLAMA_MODEL`/`OLLAMA_HOST` for the CLI agent; `GROQ_API_KEY`/`GEMINI_API_KEY` reserved for the planned model-backed musicians |
 | `tests/` | Test stubs |
 
 So the intended shape is a conductor service that asks several musician agents
 for a bar, validates their notes against the current key and tempo, and streams
-the accepted bars to this frontend over WebSocket. None of that is implemented,
-and nothing in the game depends on it — the frontend plays the layers you place.
+the accepted bars to this frontend over WebSocket. The CLI agent covers the
+request → model → tool → playback loop, but not note generation; nothing in the
+browser game depends on either yet — the frontend plays the layers you place.
 
 ### What still has to be built
 
 - A conductor that owns tempo, key, chord progression, and bar number.
 - Musician adapters (Gemini, Groq, Ollama, plus the rule-based baseline) behind a
-  common interface.
+  common interface, emitting validated bars rather than controlling playback.
 - Note validation and correction against the scale in `backend/conductor/validator.py`.
 - A WebSocket channel from the conductor to the browser, plus a frontend client
   that applies incoming bars to the stage.
