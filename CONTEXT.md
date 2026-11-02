@@ -36,6 +36,14 @@ _Avoid_: agent, AI musician, LLM, bot
 One of the seven animated figures on the stage.
 _Avoid_: avatar, sprite
 
+**Character art**:
+The drawing that represents a character on the stage: that character's silhouette, face and accessory. It has an idle expression and a performing expression.
+_Avoid_: avatar, sprite, blob, portrait
+
+**Silhouette**:
+The outline that makes one character's art distinguishable from another's, independent of colour.
+_Avoid_: shape, body
+
 **Slot**:
 The position holding one assignment: an instrument, its performer, and whether it is muted or soloed. There is exactly one slot per character.
 _Avoid_: seat, position

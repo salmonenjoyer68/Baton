@@ -25,6 +25,10 @@ static page.
 - **Seven characters, seven layers.** Each slot holds one instrument with its own
   pattern of eight velocities, so layers interlock instead of all firing on every
   beat.
+- **Seven distinct characters.** Every character has its own stepped-pixel
+  silhouette, face and integrated accessory. The performing mouth opens only on
+  the beats that slot's pattern actually sounds, so the stage shows the rhythm at
+  a glance while the idle face returns on rests and pauses.
 - **Twenty procedural instruments** across four categories — Beats, Bass + Melody,
   Effects, Voices — all in C minor pentatonic, so any combination stays in key.
 - **Real audio-clock timing.** A lookahead scheduler schedules notes at absolute
@@ -226,7 +230,10 @@ silent NaN frequency.
 ```
 frontend/
   src/sounds.js         Sound model: categories, note table, 20 instruments
-  src/characters.js     Character model: 7 slots (name, colour, accessory)
+  src/characters.js     Character model: 7 slots (name, colour, silhouette,
+                        face and accessory geometry)
+  src/character-art.jsx Shared renderer: character geometry plus idle and
+                        performing face
   src/model-play.js     Model seam: handoff/take-back/apply-take transitions,
                         strict reply parsing, and the request to the model
   src/loop.js           Shared loop grid: BPM, LOOP_BEATS, BEAT_SECONDS,
