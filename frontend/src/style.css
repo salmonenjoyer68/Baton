@@ -169,15 +169,13 @@ svg { display: block; }
 
 .pixel-btn:hover,
 .sound-tile:hover,
-.nav-link:hover,
-.text-link:hover {
+.nav-link:hover {
   transform: translateY(-2px);
 }
 
 .pixel-btn:active,
 .sound-tile:active,
-.nav-link:active,
-.text-link:active {
+.nav-link:active {
   transform: translateY(2px);
 }
 
@@ -351,78 +349,6 @@ section {
   --fill: var(--text);
   color: var(--bg);
 }
-
-.text-link {
-  display: inline-block;
-  padding-bottom: 4px;
-  border-bottom: 3px solid currentColor;
-  color: var(--accent-2);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 8px;
-  line-height: 1.8;
-}
-
-.hero-card {
-  padding: 24px;
-  --edge: var(--text);
-}
-
-.hero-card-inner { min-width: 0; }
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 3px solid var(--muted);
-  color: var(--muted);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 8px;
-  line-height: 1.6;
-}
-
-.status-live { color: var(--success); }
-.status-idle { color: var(--muted); }
-
-.stat-list {
-  display: grid;
-  gap: 12px;
-  margin: 18px 0;
-}
-
-.stat-list div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid color-mix(in srgb, var(--muted) 28%, var(--surface));
-}
-
-.stat-list dt {
-  color: var(--muted);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 7px;
-  line-height: 1.6;
-}
-
-.stat-list dd {
-  margin: 0;
-  color: var(--text);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.4;
-  text-align: right;
-}
-
-.stat-list small {
-  display: block;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 7px;
-}
-
-.card-note { margin: 0; color: var(--muted); font-size: 13px; }
 
 /* Stage */
 .section-head {
@@ -732,48 +658,6 @@ section {
   background: var(--bg);
 }
 
-/* How to conduct */
-.how-grid {
-  display: grid;
-  gap: 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.how-card {
-  padding: 22px;
-  --edge: var(--muted);
-}
-
-.how-num {
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: 16px;
-  background: var(--accent);
-  color: var(--bg);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 10px;
-}
-
-.how-card h3 {
-  margin: 0 0 10px;
-  color: var(--text);
-  font-family: "Press Start 2P", "Courier New", monospace;
-  font-size: 9px;
-  font-weight: 400;
-  line-height: 1.6;
-}
-
-.how-card p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.65;
-}
-
 /* Footer */
 .footer {
   display: flex;
@@ -894,18 +778,9 @@ section {
 /* Responsive: mobile-first, then tablet and desktop grids. */
 @media (min-width: 700px) {
   .sound-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .how-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .stage {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     padding: 8px 8px 22px;
-  }
-}
-
-@media (min-width: 900px) {
-  .hero {
-    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-    align-items: center;
-    gap: 48px;
   }
 }
 
@@ -919,13 +794,13 @@ section {
   .nav {
     order: 3;
     width: 100%;
+    justify-content: center;
+    gap: 28px;
     margin-left: 0;
-    justify-content: space-between;
     padding-top: 8px;
     border-top: 4px solid var(--surface);
   }
   .topbar-actions { margin-left: auto; }
-  .bpm-badge { display: none; }
   .brand { font-size: 12px; }
   .brand .logo-art { width: 30px; height: 30px; }
 }
@@ -934,8 +809,7 @@ section {
 @media (prefers-reduced-motion: no-preference) {
   .pixel-btn,
   .sound-tile,
-  .nav-link,
-  .text-link {
+  .nav-link {
     transition: transform 100ms steps(4);
   }
 
