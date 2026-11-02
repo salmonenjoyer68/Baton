@@ -259,7 +259,6 @@ function App() {
       <nav className="nav" aria-label="Sections">
         <a className="nav-link" href="#stage">STAGE</a>
         <a className="nav-link" href="#sounds">SOUNDS</a>
-        <a className="nav-link" href="#how">HOW</a>
       </nav>
       <div className="topbar-actions">
         <span className="bpm-badge">{BPM} BPM</span>
@@ -276,24 +275,8 @@ function App() {
           <p className="intro">Baton is a browser beat lab. Drop a sound on a character, stack layers until the loop feels good, and mute anything that gets in the way. Every sound is generated live and locked to the same eight-beat grid.</p>
           <div className="hero-actions">
             <a className="primary-link pixel pixel-btn" href="#stage"><span>OPEN THE STAGE</span></a>
-            <a className="text-link" href="#how">HOW IT WORKS</a>
           </div>
         </div>
-        <aside className="hero-card pixel" aria-label="Loop information">
-          <div className="hero-card-inner">
-            <div className="card-head">
-              <span>LOOP INFO</span>
-              <span className={playing ? "status-live" : "status-idle"}>{playing ? "RUNNING" : "PAUSED"}</span>
-            </div>
-            <dl className="stat-list">
-              <div><dt>TEMPO</dt><dd>{BPM}<small>BPM</small></dd></div>
-              <div><dt>GRID</dt><dd>{LOOP_BEATS}<small>BEATS</small></dd></div>
-              <div><dt>SOUNDS</dt><dd>20<small>PROCEDURAL</small></dd></div>
-              <div><dt>KEY</dt><dd>C MINOR<small>PENTATONIC</small></dd></div>
-            </dl>
-            <p className="card-note" role="status">{activeCount ? `${activeCount} of 7 characters in the mix.` : "All seven slots are empty. Pick a sound below."}</p>
-          </div>
-        </aside>
       </section>
       <section className="stage-section" id="stage">
         <div className="section-head">
@@ -307,7 +290,7 @@ function App() {
             )}
           </div>
         </div>
-        <p className="section-hint">Drag a sound onto a character. Drag a character's sound off the stage to clear the slot. Tap works too. With a keyboard, pick a sound, then press Enter on a character.</p>
+        <p className="section-hint">An {LOOP_BEATS}-beat loop in C minor pentatonic: 20 instruments across {SLOT_COUNT} characters. Drag a sound onto a character. Drag a character's sound off the stage to clear the slot. Tap works too. With a keyboard, pick a sound, then press Enter on a character.</p>
         <div className="stage" style={{ "--beat-ms": `${BEAT_ANIMATION_MS}ms` }}>{slots.map((layer, index) => {
           const sound = layer ? layer.sound : null;
           const character = CHARACTERS[index];
@@ -368,37 +351,6 @@ function App() {
             <span className="dot" aria-hidden="true" />
           </button>)}</div>
         </div>)}
-      </section>
-      <section className="how-section" id="how">
-        <div className="section-head">
-          <div>
-            <p className="section-kicker">03 // CONTROLS</p>
-            <h2>HOW TO CONDUCT</h2>
-          </div>
-        </div>
-        <ol className="how-grid">
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">01</span>
-              <h3>PICK A SOUND</h3>
-              <p>Tap any tile in the shelf, then tap the character who should play it. Prefer dragging? Pull the tile onto the stage.</p>
-            </div>
-          </li>
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">02</span>
-              <h3>LOCK THE LOOP</h3>
-              <p>Every layer joins on the next loop boundary, so a new sound never stumbles in halfway through the bar.</p>
-            </div>
-          </li>
-          <li className="how-card pixel">
-            <div className="how-inner">
-              <span className="how-num">03</span>
-              <h3>SHAPE THE MIX</h3>
-              <p>Replace a sound by dropping another on top. Mute one layer, solo another, or drag a sound off the stage to clear it.</p>
-            </div>
-          </li>
-        </ol>
       </section>
     </main>
     <footer className="footer" inert={inertWhenStopped}>
