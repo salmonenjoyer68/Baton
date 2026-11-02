@@ -1,4 +1,4 @@
-import { NOTE_HZ } from "./sounds";
+import { NOTE_HZ } from "./sounds.js";
 
 const BPM = 110;
 const BEAT_SECONDS = 60 / BPM;

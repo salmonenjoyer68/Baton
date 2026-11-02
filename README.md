@@ -29,10 +29,14 @@ static page.
 - **Real audio-clock timing.** A lookahead scheduler schedules notes at absolute
   `AudioContext` times. New layers enter on the next loop boundary; mute, solo,
   and removal apply immediately.
-- **Handoff.** Each slot card carries a `Model` toggle beside mute and solo. It
-  marks the slot's performer as a model, shows the performer on the card, and
-  hands the slot back with the authored pattern intact. Model takes and ratings
-  arrive in later tickets; nothing changes what you hear yet.
+- **Handoff and takes.** Each slot card carries a `Model` toggle beside mute and
+  solo. Handing a slot over marks its performer as a model and adds a `Take`
+  button; one press sends one request for that instrument, and a usable reply
+  becomes the slot's override on the next loop boundary. The slot card names the
+  failure — unreachable server, unusable reply with a specific reason, or a
+  request still in flight — and the pattern that is playing keeps playing.
+  Taking the slot back restores the instrument's authored pattern. Ratings and
+  the take log arrive in a later ticket.
 - **Mouse, touch, and keyboard.** Pointer-event drag and drop (no HTML5 drag
   API), tap-to-select, and a keyboard path: select an instrument tile, focus a
   character, press Enter to place it, or Delete/Backspace to clear it. Drag a
@@ -75,7 +79,8 @@ npm test         # node --test; discovers src/*.test.js
 ```
 
 No environment variables, API keys, or backend services are needed to play the
-browser game.
+browser game by hand. Model takes are optional and need only the local model
+server described below.
 
 ### CLI DJ
 
@@ -106,24 +111,43 @@ changing only `OLLAMA_MODEL`. Put overrides in a repo-root `.env` (copy
 settings never enter the repository. Full details, including troubleshooting,
 are in [`music-agent/README.md`](music-agent/README.md).
 
-### Browser model performers (not wired up yet)
+### Browser model performers
 
-Model performers are tracked in [#1](https://github.com/salmonenjoyer68/Baton/issues/1).
-Nothing in the browser talks to a model today; when it does, it will call your
-local model server directly, with no service in between. The plan puts the model
-name and the server address in one frontend module as two constants, so swapping
-models will be a two-line edit — there is no settings screen and nothing is
-persisted.
+The browser calls your local model server directly over HTTP; there is no
+service in between and no settings screen. The server address and the model
+name are two constants at the top of `frontend/src/model-play.js`:
+
+```js
+export const MODEL_SERVER = "http://127.0.0.1:11434";
+export const MODEL_NAME = "qwen2.5:3b";
+```
+
+Change those two lines to swap models. The default is the same Ollama server
+and model as the CLI DJ; pull it with `ollama pull qwen2.5:3b` and keep
+`ollama serve` running. Nothing is persisted and no take is sent anywhere else.
 
 The one machine setting that can get in the way is the server's origin
-allow-list. Serve the game on `http://localhost:5173` and, if your server
-rejects that origin, start it as:
+allow-list. Serve the game on `http://localhost:5173` (the Vite dev server). If
+the browser reports the model as unreachable, start the server with that origin
+allowed:
 
 ```sh
 OLLAMA_ORIGINS=http://localhost:5173 ollama serve
 ```
 
-The model to pull is the same one the CLI DJ uses (`qwen2.5:3b` by default).
+The browser game still needs no environment variables, API keys, or backend of
+its own; takes only work while a local model server is running.
+
+The contract with the model is one JSON object containing a `pattern` array of
+exactly eight numbers in 0–1:
+
+```json
+{"pattern": [1, 0, 0, 0.5, 0, 0, 0.5, 0]}
+```
+
+Anything else is rejected without changing the playing pattern, and the slot
+card says which check failed (not JSON, no pattern array, wrong length,
+non-numeric, out of range).
 
 ## How to play
 
@@ -135,6 +159,8 @@ The model to pull is the same one the CLI DJ uses (`qwen2.5:3b` by default).
 | Move an instrument | Drag it from one character to another | Same | — |
 | Remove an instrument | Drag it off the stage | Same | Focus the character, press Delete or Backspace |
 | Mute / solo a layer | Toggle **Mute** / **Solo** on the card | Same | Tab to the toggle, press Space or Enter |
+| Hand a slot to the model | Toggle **Model** on the card | Same | Tab to the toggle, press Space or Enter |
+| Ask the model for a take | Press **Take** on a model-played card | Same | Tab to the button, press Space or Enter |
 | Pause the music | **PAUSE** in the header | Same | Same |
 
 The header shows tempo, a Play/Pause control, and a beat indicator.
@@ -184,7 +210,8 @@ silent NaN frequency.
 frontend/
   src/sounds.js         Sound model: categories, note table, 20 instruments
   src/characters.js     Character model: 7 slots (name, colour, accessory)
-  src/model-play.js     Pure slot transitions: handoff and take-back
+  src/model-play.js     Model seam: handoff/take-back/apply-take transitions,
+                        strict reply parsing, and the request to the model
   src/audio-engine.js   Lookahead scheduler and recipe playback
   src/main.jsx          React app: state, drag/tap/keyboard handling, pixel UI
   src/style.css         Eight palette tokens, 8-bit design system, responsive CSS
@@ -219,11 +246,14 @@ library and no cloud dependency.
 
 ## Status
 
-Two things work today, independently.
+The browser game works on its own, and model takes work when a local model
+server is running beside it.
 
 **The browser game** is complete and playable by hand: twenty instruments, seven
 characters, pattern-based layers, mute/solo, pointer drag on mouse and touch,
-keyboard placement and removal, and a responsive dark 8-bit interface.
+keyboard placement and removal, and a responsive dark 8-bit interface. Handoff
+adds a `Take` button; a usable take becomes the slot's override on the next loop
+boundary, and a rejection is named on the card.
 
 **The CLI DJ** is a working command-line tool in `music-agent/`. A local Ollama
 model reads plain-English requests, calls tools, and controls mpv through yt-dlp
@@ -253,10 +283,10 @@ musical loop:
 
 So the intended shape is a coordinator service that asks several performer models
 for a loop, validates their notes against the current key and tempo, and streams
-the accepted patterns to this frontend over WebSocket. The CLI DJ covers the
-request → model → tool → playback loop, but not note generation; nothing in the
-browser game depends on either yet — for now the frontend plays the instruments
-you place.
+the accepted patterns to this frontend over WebSocket. The browser game does not
+use that scaffolding: it calls the local model server directly, one instrument
+at a time, and installs the reply as a slot override. The CLI DJ covers the
+request → model → tool → playback loop, but not note generation.
 
 ### What still has to be built
 
@@ -267,9 +297,9 @@ you place.
 - A WebSocket channel from the coordinator to the browser, plus a frontend client
   that applies incoming loops to the stage.
 - Shared state so the browser and the performers see the same loop position.
-- Requesting a local model's takes from the browser, and rating them
-  ([#1](https://github.com/salmonenjoyer68/Baton/issues/1)). Handoff already
-  marks a slot's performer; no take is requested or played yet.
+- Rating takes and keeping the take log that later requests carry
+  ([#1](https://github.com/salmonenjoyer68/Baton/issues/1)). Requesting and
+  playing a take now works; verdicts are not recorded yet.
 
 ## Development notes
 
