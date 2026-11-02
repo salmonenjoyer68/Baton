@@ -29,6 +29,10 @@ static page.
 - **Real audio-clock timing.** A lookahead scheduler schedules notes at absolute
   `AudioContext` times. New layers enter on the next loop boundary; mute, solo,
   and removal apply immediately.
+- **Handoff.** Each slot card carries a `Model` toggle beside mute and solo. It
+  marks the slot's performer as a model, shows the performer on the card, and
+  hands the slot back with the authored pattern intact. Model takes and ratings
+  arrive in later tickets; nothing changes what you hear yet.
 - **Mouse, touch, and keyboard.** Pointer-event drag and drop (no HTML5 drag
   API), tap-to-select, and a keyboard path: select an instrument tile, focus a
   character, press Enter to place it, or Delete/Backspace to clear it. Drag a
@@ -180,6 +184,7 @@ silent NaN frequency.
 frontend/
   src/sounds.js         Sound model: categories, note table, 20 instruments
   src/characters.js     Character model: 7 slots (name, colour, accessory)
+  src/model-play.js     Pure slot transitions: handoff and take-back
   src/audio-engine.js   Lookahead scheduler and recipe playback
   src/main.jsx          React app: state, drag/tap/keyboard handling, pixel UI
   src/style.css         Eight palette tokens, 8-bit design system, responsive CSS
@@ -262,8 +267,9 @@ you place.
 - A WebSocket channel from the coordinator to the browser, plus a frontend client
   that applies incoming loops to the stage.
 - Shared state so the browser and the performers see the same loop position.
-- Handing a slot to a local model from the browser, and rating its takes
-  ([#1](https://github.com/salmonenjoyer68/Baton/issues/1)).
+- Requesting a local model's takes from the browser, and rating them
+  ([#1](https://github.com/salmonenjoyer68/Baton/issues/1)). Handoff already
+  marks a slot's performer; no take is requested or played yet.
 
 ## Development notes
 

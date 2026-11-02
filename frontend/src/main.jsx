@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { AudioEngine, BPM, BEAT_SECONDS, LOOP_BEATS } from "./audio-engine";
 import { CATEGORY_GROUPS } from "./sounds";
 import { CHARACTERS, SLOT_COUNT } from "./characters";
+import { handoff, takeBack } from "./model-play";
 import "./style.css";
 
 const DRAG_THRESHOLD = 6;
@@ -145,7 +146,16 @@ function App() {
   };
   const assign = (slot, sound) => {
     const previous = slots[slot];
-    setSlot(slot, { sound, muted: previous?.muted ?? false, solo: previous?.solo ?? false });
+    // A replacement is a fresh assignment: the conductor owns it again and no
+    // take or override survives the old instrument.
+    setSlot(slot, {
+      sound,
+      performer: "conductor",
+      muted: previous?.muted ?? false,
+      solo: previous?.solo ?? false,
+      override: null,
+      takes: []
+    });
     setSelected(null);
   };
   const remove = (slot) => setSlot(slot, null);
@@ -160,6 +170,15 @@ function App() {
     const layer = slots[slot];
     if (!layer) return;
     setSlot(slot, { ...layer, [key]: !layer[key] });
+  };
+  // Handoff is a per-slot toggle: model takes the assignment, or gives it back
+  // with the override and take log cleared.
+  const togglePerformer = (slot) => {
+    const layer = slots[slot];
+    if (!layer) return;
+    const next = layer.performer === "model" ? takeBack(slots, slot) : handoff(slots, slot);
+    setSlots(next);
+    engine.current?.setLayer(slot, next[slot]);
   };
   const togglePlay = async () => {
     if (starting || !engine.current) return;
@@ -300,12 +319,15 @@ function App() {
             data-slot={index}
             tabIndex={0}
             role="group"
-            aria-label={`${character.name} slot, ${sound ? sound.name : "empty"}${selected ? ", selected sound ready" : ""}`}
+            aria-label={`${character.name} slot, ${sound ? `${sound.name}, played by ${layer.performer === "model" ? "the model" : "the conductor"}` : "empty"}${selected ? ", selected sound ready" : ""}`}
             onKeyDown={(event) => handleSlotKey(event, index)}
             onPointerDown={(event) => { if (event.target.closest("button")) return; beginDrag(event, sound, index); }}
           >
             <div className="slot-top">
               <span className="slot-number">{String(index + 1).padStart(2, "0")}</span>
+              {sound && <span className={`slot-performer ${layer.performer === "model" ? "is-model" : ""}`}>
+                {layer.performer === "model" ? "MODEL" : "CONDUCTOR"}
+              </span>}
               <span className={`slot-state ${sound ? "state-on" : ""}`}>{sound ? "ON" : "OFF"}</span>
             </div>
             <div className={`character ${playing && sound ? "character-beat" : ""}`} key={playing && sound ? beat : "rest"}>
@@ -319,6 +341,7 @@ function App() {
                   <div className="slot-toggles">
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.muted ? "on" : ""}`} aria-pressed={layer.muted} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "muted"); }}><span>MUTE</span></button>
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.solo ? "on" : ""}`} aria-pressed={layer.solo} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "solo"); }}><span>SOLO</span></button>
+                    <button type="button" className={`toggle-btn handoff pixel pixel-btn ${layer.performer === "model" ? "on" : ""}`} aria-pressed={layer.performer === "model"} aria-label={layer.performer === "model" ? `Take ${sound.name} back from the model` : `Hand ${sound.name} to the model`} onClick={(event) => { event.stopPropagation(); togglePerformer(index); }}><span>MODEL</span></button>
                   </div>
                 </>
               : <span className="empty-label">{selected ? "TAP TO PLACE" : "NO SOUND"}</span>}
