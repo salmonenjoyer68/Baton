@@ -6,8 +6,26 @@
 *.key
 *.p12
 *.pfx
+*.secret
 secrets.json
 credentials.json
+secrets/
+credentials/
+# yt-dlp / browser session cookies (auth material)
+cookies.txt
+*cookies*.txt
+# CLI credentials and package-registry tokens
+.netrc
+.npmrc
+.pypirc
+auth.json
+token.json
+# SSH and cloud credentials
+id_rsa
+id_ed25519
+*.ppk
+.aws/
+.gcloud/
 
 # Python
 __pycache__/
