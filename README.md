@@ -35,8 +35,11 @@ static page.
   becomes the slot's override on the next loop boundary. The slot card names the
   failure — unreachable server, unusable reply with a specific reason, or a
   request still in flight — and the pattern that is playing keeps playing.
-  Taking the slot back restores the instrument's authored pattern. Ratings and
-  the take log arrive in a later ticket.
+  Taking the slot back restores the instrument's authored pattern. Each landed
+  take waits for an `Accept`/`Reject` verdict; the card lists the whole take log
+  oldest-first with every pattern and verdict, and the next request carries that
+  log so the model can move toward what was approved. The log stays until the
+  slot is handed back or the instrument is removed.
 - **Mouse, touch, and keyboard.** Pointer-event drag and drop (no HTML5 drag
   API), tap-to-select, and a keyboard path: select an instrument tile, focus a
   character, press Enter to place it, or Delete/Backspace to clear it. Drag a
@@ -149,6 +152,11 @@ Anything else is rejected without changing the playing pattern, and the slot
 card says which check failed (not JSON, no pattern array, wrong length,
 non-numeric, out of range).
 
+Each request also carries the slot's take log, oldest take first, with every
+eight-velocity pattern and its verdict, so an accepted take becomes the
+direction of the next proposal and a rejected one becomes what to avoid. With
+no takes yet, the prompt says the proposal is the first.
+
 ## How to play
 
 | Action | Mouse | Touch | Keyboard |
@@ -161,7 +169,12 @@ non-numeric, out of range).
 | Mute / solo a layer | Toggle **Mute** / **Solo** on the card | Same | Tab to the toggle, press Space or Enter |
 | Hand a slot to the model | Toggle **Model** on the card | Same | Tab to the toggle, press Space or Enter |
 | Ask the model for a take | Press **Take** on a model-played card | Same | Tab to the button, press Space or Enter |
+| Rate a landed take | Press **Accept** or **Reject** on the card | Same | Tab to the button, press Space or Enter |
 | Pause the music | **PAUSE** in the header | Same | Same |
+
+A landed take must be accepted or rejected before **Take** can be pressed again.
+Rejecting a take does not undo the pattern already playing; it records the
+verdict and tells the next request what to avoid.
 
 The header shows tempo, a Play/Pause control, and a beat indicator.
 The stage header counts how many of the seven characters are performing.
@@ -253,7 +266,9 @@ server is running beside it.
 characters, pattern-based layers, mute/solo, pointer drag on mouse and touch,
 keyboard placement and removal, and a responsive dark 8-bit interface. Handoff
 adds a `Take` button; a usable take becomes the slot's override on the next loop
-boundary, and a rejection is named on the card.
+boundary, an unusable reply is named on the card, and every landed take can be
+accepted or rejected. The card shows the take log, and each later request
+carries it back to the model.
 
 **The CLI DJ** is a working command-line tool in `music-agent/`. A local Ollama
 model reads plain-English requests, calls tools, and controls mpv through yt-dlp
@@ -297,9 +312,6 @@ request → model → tool → playback loop, but not note generation.
 - A WebSocket channel from the coordinator to the browser, plus a frontend client
   that applies incoming loops to the stage.
 - Shared state so the browser and the performers see the same loop position.
-- Rating takes and keeping the take log that later requests carry
-  ([#1](https://github.com/salmonenjoyer68/Baton/issues/1)). Requesting and
-  playing a take now works; verdicts are not recorded yet.
 
 ## Development notes
 

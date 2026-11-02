@@ -3,7 +3,17 @@ import { createRoot } from "react-dom/client";
 import { AudioEngine, BPM, BEAT_SECONDS, LOOP_BEATS } from "./audio-engine";
 import { CATEGORY_GROUPS } from "./sounds";
 import { CHARACTERS, SLOT_COUNT } from "./characters";
-import { applyTake, handoff, requestTake, takeBack, TAKE_REASONS } from "./model-play";
+import {
+  ACCEPTED,
+  applyTake,
+  handoff,
+  hasUnratedTake,
+  rateTake,
+  REJECTED,
+  requestTake,
+  takeBack,
+  TAKE_REASONS
+} from "./model-play";
 import "./style.css";
 
 const DRAG_THRESHOLD = 6;
@@ -26,6 +36,11 @@ function takeStatusText(takeState) {
   if (takeState.status === "pending") return "MODEL IS TAKING...";
   if (takeState.status === "unreachable") return "MODEL UNREACHABLE // START OLLAMA";
   if (takeState.status === "rejected") return `TAKE REJECTED // ${TAKE_REASON_TEXT[takeState.reason] ?? "UNUSABLE REPLY"}`;
+  if (takeState.status === "rated") {
+    return takeState.rating === ACCEPTED
+      ? "TAKE ACCEPTED // READY FOR ANOTHER"
+      : "TAKE REJECTED BY YOU // READY FOR ANOTHER";
+  }
   return "TAKE LANDED ON THE NEXT LOOP";
 }
 
@@ -230,12 +245,14 @@ function App() {
   // engine enters it on the next loop boundary) or names why it was rejected.
   const takeFromModel = async (slot) => {
     const layer = slotsRef.current[slot];
-    if (!layer || layer.performer !== "model" || pendingTakes.current[slot]) return;
+    // One verdict per take: the previous take must be rated before another is
+    // requested, so the log never accumulates untried patterns.
+    if (!layer || layer.performer !== "model" || pendingTakes.current[slot] || hasUnratedTake(layer)) return;
     const token = (takeTokens.current[slot] ?? 0) + 1;
     takeTokens.current[slot] = token;
     pendingTakes.current[slot] = true;
     setTakeStates((current) => ({ ...current, [slot]: { status: "pending" } }));
-    const result = await requestTake(layer.sound);
+    const result = await requestTake(layer.sound, layer.takes);
     // The slot was reassigned, removed or handed back while the model worked.
     if (takeTokens.current[slot] !== token) return;
     pendingTakes.current[slot] = false;
@@ -251,6 +268,14 @@ function App() {
     } else {
       setTakeStates((current) => ({ ...current, [slot]: { status: "rejected", reason: result.reason } }));
     }
+  };
+  // The verdict is part of the assignment, not transient UI state: it stays in
+  // the take log until the slot is handed back or the instrument is removed.
+  const rateTakeOnSlot = (slot, rating) => {
+    const layer = slotsRef.current[slot];
+    if (!layer || layer.performer !== "model" || !hasUnratedTake(layer)) return;
+    setSlots(rateTake(slotsRef.current, slot, rating));
+    setTakeStates((current) => ({ ...current, [slot]: { status: "rated", rating } }));
   };
   const togglePlay = async () => {
     if (starting || !engine.current) return;
@@ -386,6 +411,7 @@ function App() {
           const sound = layer ? layer.sound : null;
           const character = CHARACTERS[index];
           const takeState = takeStates[index];
+          const openTake = Boolean(layer && layer.performer === "model" && hasUnratedTake(layer));
           return <div
             className={`slot pixel ${sound ? `occupied ${sound.category}` : "empty"} ${dragView?.over === index ? "drop-target" : ""}`}
             key={character.id}
@@ -415,9 +441,30 @@ function App() {
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.muted ? "on" : ""}`} aria-pressed={layer.muted} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "muted"); }}><span>MUTE</span></button>
                     <button type="button" className={`toggle-btn pixel pixel-btn ${layer.solo ? "on" : ""}`} aria-pressed={layer.solo} onClick={(event) => { event.stopPropagation(); toggleLayer(index, "solo"); }}><span>SOLO</span></button>
                     <button type="button" className={`toggle-btn handoff pixel pixel-btn ${layer.performer === "model" ? "on" : ""}`} aria-pressed={layer.performer === "model"} aria-label={layer.performer === "model" ? `Take ${sound.name} back from the model` : `Hand ${sound.name} to the model`} onClick={(event) => { event.stopPropagation(); togglePerformer(index); }}><span>MODEL</span></button>
-                    {layer.performer === "model" && <button type="button" className="toggle-btn take pixel pixel-btn" aria-label={`Ask the model for a take on ${sound.name}`} disabled={takeState?.status === "pending"} onClick={(event) => { event.stopPropagation(); takeFromModel(index); }}><span>{takeState?.status === "pending" ? "TAKING" : "TAKE"}</span></button>}
+                    {layer.performer === "model" && <button
+                      type="button"
+                      className="toggle-btn take pixel pixel-btn"
+                      aria-label={openTake ? `Rate the current take on ${sound.name} before asking for another` : `Ask the model for a take on ${sound.name}`}
+                      disabled={takeState?.status === "pending" || openTake}
+                      onClick={(event) => { event.stopPropagation(); takeFromModel(index); }}
+                    ><span>{takeState?.status === "pending" ? "TAKING" : "TAKE"}</span></button>}
                   </div>
                   {layer.performer === "model" && takeState && <p className={`take-status ${takeState.status}`} role="status">{takeStatusText(takeState)}</p>}
+                  {openTake && <div className="rating-actions" role="group" aria-label={`Rate the latest take on ${sound.name}`}>
+                    <button type="button" className="rating-btn accept pixel pixel-btn" onClick={(event) => { event.stopPropagation(); rateTakeOnSlot(index, ACCEPTED); }}><span>ACCEPT</span></button>
+                    <button type="button" className="rating-btn reject pixel pixel-btn" onClick={(event) => { event.stopPropagation(); rateTakeOnSlot(index, REJECTED); }}><span>REJECT</span></button>
+                  </div>}
+                  {layer.performer === "model" && layer.takes.length > 0 && <div className="take-log">
+                    <p className="take-log-title">TAKE LOG</p>
+                    <ol aria-label="Take log, oldest first">
+                      {layer.takes.map((take, takeIndex) => <li key={takeIndex} className={take.rating ?? "unrated"}>
+                        <span className="take-log-index">#{takeIndex + 1}</span>
+                        <span className="take-log-pattern">{take.pattern.join(" ")}</span>
+                        <span className="take-log-rating">{take.rating ? take.rating.toUpperCase() : "UNRATED"}</span>
+                        {takeIndex === layer.takes.length - 1 && <span className="take-log-now">PLAYING</span>}
+                      </li>)}
+                    </ol>
+                  </div>}
                 </>
               : <span className="empty-label">{selected ? "TAP TO PLACE" : "NO SOUND"}</span>}
           </div>;
