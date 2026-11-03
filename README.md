@@ -18,7 +18,7 @@ static page.
 > English and plays it; it is not connected to the browser game. See
 > [Status](#status) for exactly what exists.
 
-![Baton 8-bit stage and instrument shelf](docs/preview.webp)
+![Baton 8-bit stage and instrument shelf](docs/preview-8bit.webp)
 
 ## Features
 
@@ -252,7 +252,7 @@ music-agent/            Working CLI DJ: local Ollama model + yt-dlp + mpv
   README.md             DJ install, run, and troubleshooting
 docs/
   architecture.md       Planned coordinator service (not implemented)
-  preview.webp          Screenshot for this README
+  preview-8bit.webp     Screenshot for this README
 backend/                Planned coordinator + performer adapters (docstrings only)
 backend/performers/     gemini, groq, ollama, rule_based adapters (docstrings only)
 tests/                  Test stubs
